@@ -1,5 +1,5 @@
 # Qobine
- An Adwaita-based Qobuz client.
+An Adwaita-based Qobuz client.
 
 <img src="../assets/qobuz-player-gtk.png?raw=true">
 
@@ -7,10 +7,9 @@ Listening to your Qobuz music with Qobine: an Adwaita Qobuz client designed for 
 
 ## Installation
 
-Qobine is not yet on flathub, but you can download the latest flatpak release, and install with flatpak:
-
-```
-flatpak install --user qobuz-player-x86_64.flatpak 
+Qobine is available on Flathub. Install with flatpak:
+```sh
+flatpak install flathub io.github.sofusa.qobine
 ```
 
 ## Usage
