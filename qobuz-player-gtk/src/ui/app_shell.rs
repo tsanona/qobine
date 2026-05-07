@@ -16,7 +16,7 @@ use crate::ui::{
 };
 
 pub struct AppShell {
-    root: gtk4::Box,
+    root: adw::NavigationSplitView,
     client: Arc<Client>,
     spinner: gtk4::Spinner,
     waiting_label: gtk4::Label,
@@ -181,6 +181,7 @@ impl AppShell {
         let split_view = adw::NavigationSplitView::builder()
             .vexpand(true)
             .hexpand(true)
+            .css_classes(vec!["view"])
             .valign(gtk4::Align::Fill)
             .halign(gtk4::Align::Fill)
             .build();
@@ -275,16 +276,8 @@ impl AppShell {
             }
         });
 
-        let root = gtk4::Box::builder()
-            .orientation(gtk4::Orientation::Vertical)
-            .spacing(0)
-            .vexpand(true)
-            .hexpand(true)
-            .build();
-        root.append(&split_view);
-
         Self {
-            root,
+            root: split_view,
             client,
             spinner,
             waiting_label,
@@ -294,7 +287,7 @@ impl AppShell {
         }
     }
 
-    pub fn widget(&self) -> &gtk4::Box {
+    pub fn widget(&self) -> &adw::NavigationSplitView {
         &self.root
     }
 
