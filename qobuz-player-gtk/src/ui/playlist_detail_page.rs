@@ -92,7 +92,7 @@ impl PlaylistDetailPage {
         }
 
         let header = build_detail_header(
-            400,
+            300,
             vec![title.clone().upcast(), meta.clone().upcast()],
             vec![
                 play_button.clone().upcast(),

@@ -50,7 +50,6 @@ impl NowPlayingBar {
         let text_box = gtk4::Box::builder()
             .orientation(gtk4::Orientation::Vertical)
             .halign(gtk4::Align::Center)
-            .spacing(4)
             .hexpand(true)
             .build();
         text_box.append(&title_label);
@@ -123,7 +122,6 @@ impl NowPlayingBar {
 
         let left_box = gtk4::Box::builder()
             .orientation(gtk4::Orientation::Vertical)
-            .spacing(8)
             .hexpand(true)
             .valign(gtk4::Align::Center)
             .build();
@@ -132,7 +130,7 @@ impl NowPlayingBar {
         left_box.append(&controls_box);
         left_box.append(&progress_box);
 
-        let cover = gtk4::Image::builder().pixel_size(150).build();
+        let cover = gtk4::Image::builder().pixel_size(130).build();
         let cover_frame = gtk4::Frame::builder().child(&cover).build();
         cover_frame.add_css_class("card");
 

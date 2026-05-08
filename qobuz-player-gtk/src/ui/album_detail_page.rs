@@ -92,7 +92,7 @@ impl AlbumDetailPage {
         }
 
         let header = build_detail_header(
-            400,
+            300,
             vec![
                 title.clone().upcast(),
                 artist_box.clone().upcast(),
