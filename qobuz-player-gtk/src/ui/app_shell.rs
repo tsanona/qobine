@@ -9,6 +9,7 @@ use qobuz_player_controls::VolumeReceiver;
 use qobuz_player_controls::client::Client;
 use qobuz_player_controls::controls::Controls;
 use qobuz_player_controls::database::Database;
+use tokio::sync::mpsc;
 
 use crate::ui::albums_page::{AlbumsPage, new_albums_page};
 use crate::ui::artists_page::{ArtistsPage, new_artists_page};
@@ -39,6 +40,7 @@ impl AppShell {
         database: Arc<Database>,
         volume_receiver: VolumeReceiver,
         exit_sender: ExitSender,
+        audio_cache_ttl_sender: mpsc::Sender<u32>,
         on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
         on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
         on_open_playlist: Rc<dyn Fn(PlaylistHeaderInfo)>,
@@ -187,8 +189,14 @@ impl AppShell {
             .tooltip_text("Search")
             .build();
 
-        let preferences_button =
-            build_preferences_menu(app, controls, database, volume_receiver, exit_sender);
+        let preferences_button = build_preferences_menu(
+            app,
+            controls,
+            database,
+            volume_receiver,
+            exit_sender,
+            audio_cache_ttl_sender,
+        );
 
         sidebar_header.pack_start(&search_button);
         sidebar_header.pack_end(&preferences_button);

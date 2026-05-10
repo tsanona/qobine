@@ -4,6 +4,7 @@ use qobuz_player_controls::{
     notification::NotificationBroadcast, player::Player,
 };
 use std::{path::PathBuf, sync::Arc, time::Duration};
+use tokio::sync::mpsc;
 use tokio_schedule::{Job, every};
 
 #[derive(Args, Debug)]
@@ -153,7 +154,42 @@ pub fn spawn_clean_up(database: Arc<Database>, audio_cache_time_to_live: u32) {
     }
 }
 
-fn default_audio_cache(path: Option<PathBuf>) -> PathBuf {
+pub fn spawn_clean_up_mut(database: Arc<Database>, mut ttl_rx: mpsc::Receiver<u32>) {
+    tokio::spawn(async move {
+        let mut current_ttl_hours: Option<u32> = None;
+        let mut interval = tokio::time::interval(Duration::from_hours(1));
+
+        loop {
+            tokio::select! {
+                Some(new_ttl) = ttl_rx.recv() => {
+                    if new_ttl == 0 {
+                        current_ttl_hours = None;
+                        continue;
+                    }
+
+                    current_ttl_hours = Some(new_ttl);
+                    continue;
+                }
+
+                _ = interval.tick(), if current_ttl_hours.is_some() => {
+                    let ttl = current_ttl_hours.unwrap();
+                    let database = database.clone();
+
+                    if let Ok(deleted_paths) = database
+                        .clean_up_cache_entries(time::Duration::hours(ttl.into()))
+                        .await
+                    {
+                        for path in deleted_paths {
+                            let _ = tokio::fs::remove_file(&path).await;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+pub fn default_audio_cache(path: Option<PathBuf>) -> PathBuf {
     path.unwrap_or_else(|| {
         let mut cache_dir = std::env::temp_dir();
         cache_dir.push("qobuz-player-cache");
@@ -175,7 +211,7 @@ pub async fn default_audio_quality(
 }
 
 pub async fn create_player(
-    audio_cache: Option<PathBuf>,
+    audio_cache: PathBuf,
     database: Arc<Database>,
     client: Arc<Client>,
     broadcast: Arc<NotificationBroadcast>,
@@ -189,8 +225,6 @@ pub async fn create_player(
         .await
         .map(|x| x.volume)
         .unwrap_or(1.0);
-
-    let audio_cache = default_audio_cache(audio_cache);
 
     let state_change_delay = state_change_delay_ms.map(Duration::from_millis);
     let sample_rate_change_delay = sample_rate_change_delay_ms.map(Duration::from_millis);

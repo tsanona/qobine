@@ -81,6 +81,7 @@ pub fn init(
     controls: Controls,
     database: Arc<Database>,
     exit_sender: ExitSender,
+    audio_cache_ttl_sender: mpsc::Sender<u32>,
 ) -> AppResult<()> {
     libadwaita::init().unwrap();
 
@@ -136,6 +137,7 @@ pub fn init(
                 client.clone(),
                 database.clone(),
                 exit_sender.clone(),
+                audio_cache_ttl_sender.clone(),
                 ui_sender.clone(),
                 ui_receiver
             );
@@ -192,6 +194,7 @@ fn build_ui(
     client: Arc<Client>,
     database: Arc<Database>,
     exit_sender: ExitSender,
+    audio_cache_ttl_sender: mpsc::Sender<u32>,
     ui_sender: mpsc::UnboundedSender<UiEvent>,
     ui_receiver: mpsc::UnboundedReceiver<UiEvent>,
 ) {
@@ -235,6 +238,7 @@ fn build_ui(
         database,
         volume_receiver,
         exit_sender.clone(),
+        audio_cache_ttl_sender,
         on_open_album.clone(),
         on_open_artist.clone(),
         on_open_playlist.clone(),

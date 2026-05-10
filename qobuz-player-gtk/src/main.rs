@@ -1,10 +1,9 @@
-use qobuz_player_cli::{SharedArgs, create_player, default_audio_quality, spawn_clean_up};
+use qobuz_player_cli::{create_player, spawn_clean_up_mut};
 #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
 use qobuz_player_controls::StatusReceiver;
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 
-use clap::Parser;
 use qobuz_player_controls::{
     AppResult,
     client::{Client, get_app_id},
@@ -12,13 +11,6 @@ use qobuz_player_controls::{
     error::Error,
     notification::NotificationBroadcast,
 };
-
-#[derive(Parser)]
-#[clap(author, version, about, long_about = None)]
-struct Arguments {
-    #[clap(flatten)]
-    shared: SharedArgs,
-}
 
 #[tokio::main]
 async fn main() {
@@ -33,28 +25,26 @@ async fn main() {
 pub async fn run() -> AppResult<()> {
     tracing_subscriber::fmt().compact().init();
 
-    let args = Arguments::parse();
-
     let database = Arc::new(Database::new().await?);
 
     let (exit_sender, exit_receiver) = broadcast::channel(5);
 
-    let max_audio_quality = default_audio_quality(&database, args.shared.max_audio_quality).await?;
     let credentials = database.get_credentials().await?;
+    let configuration = database.get_configuration().await?;
 
     let app_id = get_app_id().await?;
-    let client = Arc::new(Client::new(credentials, max_audio_quality));
+    let client = Arc::new(Client::new(credentials, configuration.max_audio_quality));
 
     let broadcast = Arc::new(NotificationBroadcast::new());
 
     let mut player = create_player(
-        args.shared.audio_cache,
+        configuration.cache_directory,
         database.clone(),
         client.clone(),
         broadcast.clone(),
         None,
         None,
-        args.shared.output_device_id,
+        None,
     )
     .await?;
 
@@ -89,6 +79,10 @@ pub async fn run() -> AppResult<()> {
         sleep_inhibitor(status_receiver);
     }
 
+    let (ttl_tx, ttl_rx) = mpsc::channel::<u32>(5);
+    spawn_clean_up_mut(database.clone(), ttl_rx);
+    ttl_tx.send(configuration.cache_ttl_hours).await.unwrap();
+
     let client = client.clone();
 
     let controls = player.controls();
@@ -108,12 +102,12 @@ pub async fn run() -> AppResult<()> {
             controls,
             database_clone,
             exit_sender,
+            ttl_tx,
         ) {
             error_exit(e);
         };
     });
 
-    spawn_clean_up(database, args.shared.audio_cache_time_to_live);
     player.player_loop(exit_receiver).await?;
 
     Ok(())

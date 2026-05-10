@@ -14,6 +14,7 @@ use qobuz_player_controls::VolumeReceiver;
 use qobuz_player_controls::controls::Controls;
 use qobuz_player_controls::database::Configuration;
 use qobuz_player_controls::database::Database;
+use tokio::sync::mpsc;
 
 pub fn build_preferences_menu(
     app: &adw::Application,
@@ -21,6 +22,7 @@ pub fn build_preferences_menu(
     database: Arc<Database>,
     volume_receiver: VolumeReceiver,
     exit_sender: ExitSender,
+    audio_cache_ttl_sender: mpsc::Sender<u32>,
 ) -> gtk::MenuButton {
     let menu = gio::Menu::new();
     menu.append(Some("Preferences"), Some("app.preferences"));
@@ -45,6 +47,8 @@ pub fn build_preferences_menu(
             volume_receiver,
             #[strong]
             exit_sender,
+            #[strong]
+            audio_cache_ttl_sender,
             move |_, _| {
                 show_preferences_dialog(
                     &app,
@@ -52,6 +56,7 @@ pub fn build_preferences_menu(
                     database,
                     volume_receiver.clone(),
                     exit_sender.clone(),
+                    audio_cache_ttl_sender.clone(),
                 );
             }
         )
@@ -67,6 +72,7 @@ fn show_preferences_dialog(
     database: Arc<Database>,
     volume_receiver: VolumeReceiver,
     exit_sender: ExitSender,
+    audio_cache_ttl_sender: mpsc::Sender<u32>,
 ) {
     let dialog = adw::PreferencesDialog::new();
 
@@ -76,6 +82,7 @@ fn show_preferences_dialog(
         database,
         volume_receiver,
         exit_sender,
+        audio_cache_ttl_sender,
     ));
     dialog.present(app.active_window().as_ref());
 }
@@ -86,6 +93,7 @@ fn preferences_page(
     database: Arc<Database>,
     volume_receiver: VolumeReceiver,
     exit_sender: ExitSender,
+    audio_cache_ttl_sender: mpsc::Sender<u32>,
 ) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
     page.set_title("Preferences");
@@ -96,6 +104,7 @@ fn preferences_page(
         app,
         database.clone(),
         exit_sender.clone(),
+        audio_cache_ttl_sender,
         &configuration,
     ));
     page.add(&audio_group(
@@ -114,6 +123,7 @@ fn cache_group(
     app: &adw::Application,
     database: Arc<Database>,
     exit_sender: ExitSender,
+    audio_cache_ttl_sender: mpsc::Sender<u32>,
     configuration: &Configuration,
 ) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::new();
@@ -180,12 +190,15 @@ fn cache_group(
     });
 
     group.add(&row);
-    group.add(&cache_ttl_row(database, exit_sender));
+    group.add(&cache_ttl_row(database, audio_cache_ttl_sender));
 
     group
 }
 
-fn cache_ttl_row(database: Arc<Database>, exit_sender: ExitSender) -> adw::ComboRow {
+fn cache_ttl_row(
+    database: Arc<Database>,
+    audio_cache_ttl_sender: mpsc::Sender<u32>,
+) -> adw::ComboRow {
     let row = adw::ComboRow::new();
     row.set_title("Cache time to live");
 
@@ -202,10 +215,8 @@ fn cache_ttl_row(database: Arc<Database>, exit_sender: ExitSender) -> adw::Combo
             3 => 24 * 90,
             _ => 0,
         };
-        // TODO: Confirm box
-        // TODO: Instead of exit, respawn clean up
         block_on(database.set_cache_ttl_hours(hours)).unwrap();
-        exit_sender.send(true).unwrap();
+        block_on(audio_cache_ttl_sender.send(hours)).unwrap();
     });
 
     row

@@ -1,8 +1,8 @@
 #[cfg(feature = "gpio")]
 use qobuz_player_cli::GpioArgs;
 use qobuz_player_cli::{
-    ConnectNameArgs, DelayArgs, SharedArgs, SharedCommands, create_player, default_audio_quality,
-    get_client, handle_shared_commands, spawn_clean_up,
+    ConnectNameArgs, DelayArgs, SharedArgs, SharedCommands, create_player, default_audio_cache,
+    default_audio_quality, get_client, handle_shared_commands, spawn_clean_up,
 };
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -59,9 +59,10 @@ pub async fn run() -> AppResult<()> {
     let client = Arc::new(client);
 
     let broadcast = Arc::new(NotificationBroadcast::new());
+    let audio_cache = default_audio_cache(args.shared.audio_cache);
 
     let mut player = create_player(
-        args.shared.audio_cache,
+        audio_cache,
         database.clone(),
         client.clone(),
         broadcast.clone(),
