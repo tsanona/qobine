@@ -19,9 +19,7 @@ use crate::{
     ui::{
         DetailPage,
         app_shell::AppShell,
-        now_playing_bar::{
-            NowPlayingBar, update_now_playing, update_now_playing_button_icon, update_progress,
-        },
+        now_playing_bar::{NowPlayingBar, update_now_playing_button_icon, update_progress},
     },
 };
 
@@ -261,7 +259,8 @@ fn build_ui(
     window.present();
 
     let tracklist_value = tracklist_receiver.borrow().clone();
-    update_now_playing(&now_playing, &tracklist_value);
+    now_playing.update(&tracklist_value);
+    shell.tracklist_updated(&tracklist_value);
 
     setup_tracklist_listener(
         ui_sender,
@@ -326,7 +325,8 @@ fn setup_tracklist_listener(
         while let Some(update) = receiver.recv().await {
             match update {
                 UiEvent::Tracklist(tracklist) => {
-                    update_now_playing(&now_playing_bar, &tracklist);
+                    now_playing_bar.update(&tracklist);
+                    shell.tracklist_updated(&tracklist);
 
                     if let Some(entity) = tracklist.current_playing_entity() {
                         for page in detail_pages.borrow().iter() {

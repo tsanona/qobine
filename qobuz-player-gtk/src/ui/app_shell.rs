@@ -9,17 +9,24 @@ use qobuz_player_controls::VolumeReceiver;
 use qobuz_player_controls::client::Client;
 use qobuz_player_controls::controls::Controls;
 use qobuz_player_controls::database::Database;
+use qobuz_player_controls::tracklist::Tracklist;
 use tokio::sync::mpsc;
 
 use crate::ui::albums_page::{AlbumsPage, new_albums_page};
 use crate::ui::artists_page::{ArtistsPage, new_artists_page};
 use crate::ui::playlists_page::{PlaylistsPage, new_playlists_page};
 use crate::ui::preferences::build_preferences_menu;
+use crate::ui::queue::QueuePage;
 use crate::ui::search_page::SearchPage;
 use crate::ui::{
     album_detail_page::AlbumHeaderInfo, artist_detail_page::ArtistHeaderInfo,
     playlist_detail_page::PlaylistHeaderInfo,
 };
+
+const SIDEBAR_QUEUE: u32 = 0;
+const SIDEBAR_ALBUMS: u32 = 1;
+const SIDEBAR_ARTISTS: u32 = 2;
+const SIDEBAR_PLAYLISTS: u32 = 3;
 
 pub struct AppShell {
     root: adw::NavigationSplitView,
@@ -29,6 +36,7 @@ pub struct AppShell {
     albums_page: Rc<RefCell<AlbumsPage>>,
     artists_page: Rc<RefCell<ArtistsPage>>,
     playlists_page: Rc<RefCell<PlaylistsPage>>,
+    queue_page: QueuePage,
 }
 
 impl AppShell {
@@ -48,6 +56,7 @@ impl AppShell {
         let albums_page = Rc::new(RefCell::new(new_albums_page(on_open_album.clone())));
         let artists_page = Rc::new(RefCell::new(new_artists_page(on_open_artist.clone())));
         let playlists_page = Rc::new(RefCell::new(new_playlists_page(on_open_playlist.clone())));
+        let queue_page = QueuePage::new(controls.clone());
 
         let search_page = Rc::new(RefCell::new(SearchPage::new(
             client.clone(),
@@ -60,11 +69,12 @@ impl AppShell {
             .vexpand(true)
             .hexpand(true)
             .build();
+
+        stack.add_named(queue_page.widget(), Some("queue"));
         stack.add_named(albums_page.borrow().widget(), Some("albums"));
         stack.add_named(artists_page.borrow().widget(), Some("artists"));
         stack.add_named(playlists_page.borrow().widget(), Some("playlists"));
         stack.add_named(search_page.borrow().widget(), Some("search"));
-        stack.set_visible_child_name("albums");
 
         let spinner = gtk4::Spinner::new();
         spinner.start();
@@ -82,32 +92,47 @@ impl AppShell {
             .halign(gtk4::Align::Center)
             .valign(gtk4::Align::Center)
             .build();
+
         spinner_box.append(&spinner);
         spinner_box.append(&waiting_label);
 
         let sidebar = adw::Sidebar::new();
-        let section = adw::SidebarSection::new();
 
-        section.append(
+        let queue_section = adw::SidebarSection::new();
+
+        queue_section.append(
+            adw::SidebarItem::builder()
+                .title("Queue")
+                .icon_name("open-menu-symbolic")
+                .build(),
+        );
+
+        let library_section = adw::SidebarSection::new();
+        library_section.set_title(Some("Library"));
+
+        library_section.append(
             adw::SidebarItem::builder()
                 .title("Albums")
                 .icon_name("folder-music-symbolic")
                 .build(),
         );
-        section.append(
+
+        library_section.append(
             adw::SidebarItem::builder()
                 .title("Artists")
                 .icon_name("system-users-symbolic")
                 .build(),
         );
-        section.append(
+
+        library_section.append(
             adw::SidebarItem::builder()
                 .title("Playlists")
                 .icon_name("view-list-symbolic")
                 .build(),
         );
-        sidebar.append(section);
-        sidebar.set_selected(0);
+
+        sidebar.append(queue_section);
+        sidebar.append(library_section);
 
         let sidebar_header = adw::HeaderBar::new();
         sidebar_header.set_show_end_title_buttons(false);
@@ -251,53 +276,122 @@ impl AppShell {
 
         sidebar.connect_selected_notify({
             let stack = stack.clone();
+            let search_button = search_button.clone();
+
             move |sb| {
                 let idx = sb.selected();
+
                 if idx == gtk4::INVALID_LIST_POSITION {
                     return;
                 }
+
+                search_button.set_active(false);
+
                 match idx {
-                    0 => stack.set_visible_child_name("albums"),
-                    1 => stack.set_visible_child_name("artists"),
-                    2 => stack.set_visible_child_name("playlists"),
+                    SIDEBAR_QUEUE => stack.set_visible_child_name("queue"),
+                    SIDEBAR_ALBUMS => stack.set_visible_child_name("albums"),
+                    SIDEBAR_ARTISTS => stack.set_visible_child_name("artists"),
+                    SIDEBAR_PLAYLISTS => stack.set_visible_child_name("playlists"),
                     _ => {}
                 }
             }
         });
 
-        stack.connect_visible_child_notify(move |stack| {
-            let Some(visible_name) = stack.visible_child_name() else {
-                return;
-            };
+        stack.connect_visible_child_notify({
+            let sidebar = sidebar.clone();
+            let search_button = search_button.clone();
+            let filter_button = filter_button.clone();
+            let filter_entry = filter_entry.clone();
+            let search_entry = search_entry.clone();
+            let content_header = content_header.clone();
+            let content_title = content_title.clone();
 
-            if visible_name.as_str() == "search" {
-                filter_button.set_active(false);
-                filter_button.set_visible(false);
+            move |stack| {
+                let Some(visible_name) = stack.visible_child_name() else {
+                    return;
+                };
 
-                content_title.set_title("Search");
-                content_header.set_title_widget(Some(&search_entry));
+                match visible_name.as_str() {
+                    "queue" => {
+                        filter_button.set_active(false);
+                        filter_button.set_visible(false);
+                        search_button.set_active(false);
 
-                search_entry.grab_focus();
-                sidebar.set_selected(gtk4::INVALID_LIST_POSITION);
-                return;
-            }
+                        content_title.set_title("Queue");
+                        content_header.set_title_widget(Some(&content_title));
 
-            filter_button.set_visible(true);
-            search_button.set_active(false);
+                        if sidebar.selected() != SIDEBAR_QUEUE {
+                            sidebar.set_selected(SIDEBAR_QUEUE);
+                        }
+                    }
+                    "albums" => {
+                        filter_button.set_visible(true);
+                        search_button.set_active(false);
 
-            match visible_name.as_str() {
-                "albums" => content_title.set_title("Albums"),
-                "artists" => content_title.set_title("Artists"),
-                "playlists" => content_title.set_title("Playlists"),
-                _ => {}
-            }
+                        content_title.set_title("Albums");
 
-            if filter_button.is_active() {
-                content_header.set_title_widget(Some(&filter_entry));
-            } else {
-                content_header.set_title_widget(Some(&content_title));
+                        if filter_button.is_active() {
+                            content_header.set_title_widget(Some(&filter_entry));
+                        } else {
+                            content_header.set_title_widget(Some(&content_title));
+                        }
+
+                        if sidebar.selected() != SIDEBAR_ALBUMS {
+                            sidebar.set_selected(SIDEBAR_ALBUMS);
+                        }
+                    }
+                    "artists" => {
+                        filter_button.set_visible(true);
+                        search_button.set_active(false);
+
+                        content_title.set_title("Artists");
+
+                        if filter_button.is_active() {
+                            content_header.set_title_widget(Some(&filter_entry));
+                        } else {
+                            content_header.set_title_widget(Some(&content_title));
+                        }
+
+                        if sidebar.selected() != SIDEBAR_ARTISTS {
+                            sidebar.set_selected(SIDEBAR_ARTISTS);
+                        }
+                    }
+                    "playlists" => {
+                        filter_button.set_visible(true);
+                        search_button.set_active(false);
+
+                        content_title.set_title("Playlists");
+
+                        if filter_button.is_active() {
+                            content_header.set_title_widget(Some(&filter_entry));
+                        } else {
+                            content_header.set_title_widget(Some(&content_title));
+                        }
+
+                        if sidebar.selected() != SIDEBAR_PLAYLISTS {
+                            sidebar.set_selected(SIDEBAR_PLAYLISTS);
+                        }
+                    }
+                    "search" => {
+                        filter_button.set_active(false);
+                        filter_button.set_visible(false);
+
+                        content_title.set_title("Search");
+                        content_header.set_title_widget(Some(&search_entry));
+
+                        search_entry.grab_focus();
+
+                        if sidebar.selected() != gtk4::INVALID_LIST_POSITION {
+                            sidebar.set_selected(gtk4::INVALID_LIST_POSITION);
+                        }
+                    }
+                    _ => {}
+                }
             }
         });
+
+        sidebar.set_selected(SIDEBAR_ALBUMS);
+        stack.set_visible_child_name("albums");
 
         Self {
             root: split_view,
@@ -307,6 +401,7 @@ impl AppShell {
             albums_page,
             artists_page,
             playlists_page,
+            queue_page,
         }
     }
 
@@ -323,6 +418,10 @@ impl AppShell {
             &self.artists_page,
             &self.playlists_page,
         );
+    }
+
+    pub fn tracklist_updated(&self, tracklist: &Tracklist) {
+        self.queue_page.load(tracklist);
     }
 }
 
