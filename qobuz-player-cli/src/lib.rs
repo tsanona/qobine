@@ -154,26 +154,29 @@ pub fn spawn_clean_up(database: Arc<Database>, audio_cache_time_to_live: u32) {
     }
 }
 
-pub fn spawn_clean_up_mut(database: Arc<Database>, mut ttl_rx: mpsc::Receiver<u32>) {
+pub fn spawn_clean_up_mut(
+    database: Arc<Database>,
+    mut initial_ttl: Option<u32>,
+    mut ttl_rx: mpsc::UnboundedReceiver<u32>,
+) {
     tokio::spawn(async move {
-        let mut current_ttl_hours: Option<u32> = None;
         let mut interval = tokio::time::interval(Duration::from_hours(1));
 
         loop {
             tokio::select! {
                 Some(new_ttl) = ttl_rx.recv() => {
                     if new_ttl == 0 {
-                        current_ttl_hours = None;
+                        initial_ttl = None;
                         continue;
                     }
 
-                    current_ttl_hours = Some(new_ttl);
+                    initial_ttl = Some(new_ttl);
+                    database.set_cache_ttl_hours(new_ttl).await.unwrap();
                     continue;
                 }
 
-                _ = interval.tick(), if current_ttl_hours.is_some() => {
-                    let ttl = current_ttl_hours.unwrap();
-                    let database = database.clone();
+                _ = interval.tick(), if initial_ttl.is_some() => {
+                    let ttl = initial_ttl.unwrap();
 
                     if let Ok(deleted_paths) = database
                         .clean_up_cache_entries(time::Duration::hours(ttl.into()))

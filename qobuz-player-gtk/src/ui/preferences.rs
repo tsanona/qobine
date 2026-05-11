@@ -22,7 +22,7 @@ pub fn build_preferences_menu(
     database: Arc<Database>,
     volume_receiver: VolumeReceiver,
     exit_sender: ExitSender,
-    audio_cache_ttl_sender: mpsc::Sender<u32>,
+    audio_cache_ttl_sender: mpsc::UnboundedSender<u32>,
 ) -> gtk::MenuButton {
     let menu = gio::Menu::new();
     menu.append(Some("Preferences"), Some("app.preferences"));
@@ -72,7 +72,7 @@ fn show_preferences_dialog(
     database: Arc<Database>,
     volume_receiver: VolumeReceiver,
     exit_sender: ExitSender,
-    audio_cache_ttl_sender: mpsc::Sender<u32>,
+    audio_cache_ttl_sender: mpsc::UnboundedSender<u32>,
 ) {
     let dialog = adw::PreferencesDialog::new();
 
@@ -93,7 +93,7 @@ fn preferences_page(
     database: Arc<Database>,
     volume_receiver: VolumeReceiver,
     exit_sender: ExitSender,
-    audio_cache_ttl_sender: mpsc::Sender<u32>,
+    audio_cache_ttl_sender: mpsc::UnboundedSender<u32>,
 ) -> adw::PreferencesPage {
     let page = adw::PreferencesPage::new();
     page.set_title("Preferences");
@@ -102,7 +102,6 @@ fn preferences_page(
 
     page.add(&cache_group(
         app,
-        database.clone(),
         controls.clone(),
         exit_sender.clone(),
         audio_cache_ttl_sender,
@@ -116,10 +115,9 @@ fn preferences_page(
 
 fn cache_group(
     app: &adw::Application,
-    database: Arc<Database>,
     controls: Controls,
     exit_sender: ExitSender,
-    audio_cache_ttl_sender: mpsc::Sender<u32>,
+    audio_cache_ttl_sender: mpsc::UnboundedSender<u32>,
     configuration: &Configuration,
 ) -> adw::PreferencesGroup {
     let group = adw::PreferencesGroup::new();
@@ -184,18 +182,13 @@ fn cache_group(
     });
 
     group.add(&row);
-    group.add(&cache_ttl_row(
-        database,
-        audio_cache_ttl_sender,
-        configuration,
-    ));
+    group.add(&cache_ttl_row(audio_cache_ttl_sender, configuration));
 
     group
 }
 
 fn cache_ttl_row(
-    database: Arc<Database>,
-    audio_cache_ttl_sender: mpsc::Sender<u32>,
+    audio_cache_ttl_sender: mpsc::UnboundedSender<u32>,
     configuration: &Configuration,
 ) -> adw::ComboRow {
     let row = adw::ComboRow::new();
@@ -233,8 +226,7 @@ fn cache_ttl_row(
             3 => 2160,
             _ => 0,
         };
-        block_on(database.set_cache_ttl_hours(hours)).unwrap();
-        block_on(audio_cache_ttl_sender.send(hours)).unwrap();
+        audio_cache_ttl_sender.send(hours).unwrap();
     });
 
     row
@@ -255,7 +247,7 @@ fn audio_group(
         AudioQuality::HIFI192 => 3,
     };
 
-    let quality = adw::ComboRow::builder().selected(initial_selected).build();
+    let quality = adw::ComboRow::new();
     quality.set_title("Audio quality");
 
     let model = gtk::StringList::new(&[
@@ -266,10 +258,10 @@ fn audio_group(
     ]);
 
     quality.set_model(Some(&model));
+    quality.set_selected(initial_selected);
 
     quality.connect_selected_notify({
         let controls = controls.clone();
-
         move |r| {
             let value = match r.selected() {
                 0 => AudioQuality::Mp3,

@@ -40,7 +40,7 @@ impl AppShell {
         database: Arc<Database>,
         volume_receiver: VolumeReceiver,
         exit_sender: ExitSender,
-        audio_cache_ttl_sender: mpsc::Sender<u32>,
+        audio_cache_ttl_sender: mpsc::UnboundedSender<u32>,
         on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
         on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
         on_open_playlist: Rc<dyn Fn(PlaylistHeaderInfo)>,

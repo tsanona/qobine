@@ -79,9 +79,12 @@ pub async fn run() -> AppResult<()> {
         sleep_inhibitor(status_receiver);
     }
 
-    let (ttl_tx, ttl_rx) = mpsc::channel::<u32>(5);
-    spawn_clean_up_mut(database.clone(), ttl_rx);
-    ttl_tx.send(configuration.cache_ttl_hours).await.unwrap();
+    let (ttl_tx, ttl_rx) = mpsc::unbounded_channel::<u32>();
+    spawn_clean_up_mut(
+        database.clone(),
+        Some(configuration.cache_ttl_hours),
+        ttl_rx,
+    );
 
     let client = client.clone();
 

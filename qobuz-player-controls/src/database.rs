@@ -382,7 +382,7 @@ struct DatabaseConfiguration {
     volume: Option<f64>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Configuration {
     pub max_audio_quality: AudioQuality,
     pub cache_directory: PathBuf,
