@@ -48,6 +48,13 @@
   <url type="vcs-browser">https://github.com/SofusA/qobine/qobuz-player-gtk</url>
 
   <releases>
+    <release version="2026-05-11" date="2026-05-11">
+      <url type="details">https://github.com/SofusA/qobine/releases/tag/v2026-05-11</url>
+      <description>
+        <p>Changed to a sidebar view</p>
+        <p>Added preferences</p>
+      </description>
+    </release>
     <release version="0.10.3" date="2026-04-30">
       <url type="details">https://github.com/SofusA/qobine/releases/tag/v0.10.3-fix-3</url>
       <description>
