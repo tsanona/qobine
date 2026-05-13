@@ -1,12 +1,20 @@
+use std::{collections::HashSet, rc::Rc, sync::Arc};
+
 use gtk4 as gtk;
 use libadwaita as adw;
 
 use adw::NavigationPage;
 use gtk::{Image, gdk, gio, prelude::*};
 use qobuz_player_controls::{
+    client::Client,
     controls::Controls,
     models::{AlbumSimple, Artist, PlaylistSimple, Track},
     tracklist::PlayingEntity,
+};
+
+use crate::{
+    UiEventSender,
+    ui::{album_detail_page::AlbumHeaderInfo, artist_detail_page::ArtistHeaderInfo},
 };
 
 pub mod album_detail_page;
@@ -15,7 +23,7 @@ pub mod app_shell;
 pub mod artist_detail_page;
 pub mod artists_page;
 pub mod detail_page;
-pub mod favorites_button;
+pub mod favorite_tracks_page;
 pub mod grid_page;
 pub mod now_playing_bar;
 pub mod playlist_detail_page;
@@ -197,12 +205,16 @@ pub trait DetailPage {
     fn detail_type(&self) -> DetailPageType;
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_track_row(
     track: &Track,
     show_cover: bool,
     show_artist: bool,
     show_album: bool,
     controls: Controls,
+    client: Arc<Client>,
+    ui_event_sender: UiEventSender,
+    favorite_tracks: &HashSet<u32>,
 ) -> gtk::ListBoxRow {
     let track_row_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -256,7 +268,7 @@ pub fn build_track_row(
             if show_artist && let Some(artist_name) = &track.artist_name {
                 let artist_label = gtk::Label::builder()
                     .label(artist_name.clone())
-                    .css_classes(vec![String::from("dim-label")])
+                    .css_classes(vec!["dim-label"])
                     .xalign(0.0)
                     .hexpand(true)
                     .ellipsize(gtk::pango::EllipsizeMode::End)
@@ -268,7 +280,7 @@ pub fn build_track_row(
             if show_album && let Some(album_title) = &track.album_title {
                 let album_label = gtk::Label::builder()
                     .label(album_title.clone())
-                    .css_classes(vec![String::from("dim-label")])
+                    .css_classes(vec!["dim-label"])
                     .xalign(0.0)
                     .hexpand(true)
                     .ellipsize(gtk::pango::EllipsizeMode::End)
@@ -292,31 +304,75 @@ pub fn build_track_row(
 
     track_row_box.append(&duration_label);
 
+    let is_favorite = favorite_tracks.contains(&track.id);
+    let favorite_label = if is_favorite {
+        "Remove from favorites"
+    } else {
+        "Add to favorites"
+    };
+
     let menu = gio::Menu::new();
-
     menu.append(Some("Add to queue"), Some("track.add-to-queue"));
-
     menu.append(Some("Play next"), Some("track.play-next"));
+    menu.append(Some(favorite_label), Some("track.toggle-favorite"));
 
     let action_group = gio::SimpleActionGroup::new();
 
     let add_to_queue_action = gio::SimpleAction::new("add-to-queue", None);
 
-    let controls_for_queue = controls.clone();
-    let track_id = track.id;
+    add_to_queue_action.connect_activate({
+        let track_id = track.id;
+        let controls = controls.clone();
 
-    add_to_queue_action.connect_activate(move |_, _| {
-        controls_for_queue.add_tracks_to_queue(vec![track_id]);
+        move |_, _| {
+            controls.add_tracks_to_queue(vec![track_id]);
+        }
     });
 
     action_group.add_action(&add_to_queue_action);
 
+    let toggle_favorite_action = gio::SimpleAction::new("toggle-favorite", None);
+
+    toggle_favorite_action.connect_activate({
+        let track_id = track.id;
+        let client = client.clone();
+        let ui_event_sender = ui_event_sender.clone();
+
+        move |_, _| {
+            glib::MainContext::default().spawn_local({
+                let client = client.clone();
+                let ui_event_sender = ui_event_sender.clone();
+
+                async move {
+                    let result = if is_favorite {
+                        client.remove_favorite_track(track_id).await
+                    } else {
+                        client.add_favorite_track(track_id).await
+                    };
+
+                    if let Err(error) = result {
+                        tracing::error!("{error}");
+                    }
+
+                    if let Err(error) = ui_event_sender.send(crate::UiEvent::FavoritesChanged) {
+                        tracing::error!("{error}");
+                    }
+                }
+            });
+        }
+    });
+
+    action_group.add_action(&toggle_favorite_action);
+
     let play_next_action = gio::SimpleAction::new("play-next", None);
 
-    let controls_for_next = controls.clone();
+    play_next_action.connect_activate({
+        let track_id = track.id;
+        let controls = controls.clone();
 
-    play_next_action.connect_activate(move |_, _| {
-        controls_for_next.play_tracks_next(vec![track_id]);
+        move |_, _| {
+            controls.play_tracks_next(vec![track_id]);
+        }
     });
 
     action_group.add_action(&play_next_action);
@@ -328,9 +384,9 @@ pub fn build_track_row(
         .tooltip_text("Track options")
         .popover(&popover_menu)
         .valign(gtk::Align::Center)
+        .css_classes(vec!["flat"])
         .build();
 
-    menu_button.add_css_class("flat");
     menu_button.insert_action_group("track", Some(&action_group));
 
     track_row_box.append(&menu_button);
@@ -340,4 +396,91 @@ pub fn build_track_row(
         .activatable(true)
         .selectable(true)
         .build()
+}
+
+fn section(title: &str, content: gtk4::Widget) -> gtk4::Box {
+    let title = gtk4::Label::builder()
+        .label(title)
+        .css_classes(["title-3"])
+        .halign(gtk4::Align::Start)
+        .build();
+
+    let box_ = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(24)
+        .build();
+
+    box_.append(&title);
+    box_.append(&content);
+
+    box_
+}
+
+fn album_scroller(
+    albums: &[AlbumSimple],
+    on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
+) -> gtk4::Widget {
+    let box_ = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Horizontal)
+        .spacing(12)
+        .margin_top(6)
+        .margin_bottom(6)
+        .build();
+
+    for album in albums {
+        let tile = build_album_tile(album).upcast::<gtk4::Widget>();
+
+        let album_id = album.id.clone();
+        let on_open = on_open_album.clone();
+
+        let button = clickable_tile(&tile, move || {
+            on_open(AlbumHeaderInfo {
+                id: album_id.clone(),
+            });
+        });
+
+        box_.append(&button);
+    }
+
+    let scroller = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Automatic)
+        .vscrollbar_policy(gtk4::PolicyType::Never)
+        .child(&box_)
+        .build();
+
+    scroller.upcast()
+}
+
+fn artist_scroller(
+    artists: &[Artist],
+    on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
+) -> gtk4::Widget {
+    let box_ = gtk4::Box::builder()
+        .orientation(gtk4::Orientation::Horizontal)
+        .spacing(12)
+        .margin_top(6)
+        .margin_bottom(6)
+        .build();
+
+    for artist in artists {
+        let tile = build_artist_tile(artist).upcast::<gtk4::Widget>();
+
+        let artist_id = artist.id;
+        let on_open = on_open_artist.clone();
+
+        let button = clickable_tile(&tile, move || {
+            on_open(ArtistHeaderInfo { id: artist_id });
+        });
+
+        box_.append(&button);
+    }
+
+    let scroller = gtk4::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk4::PolicyType::Automatic)
+        .vscrollbar_policy(gtk4::PolicyType::Never)
+        .child(&box_)
+        .build();
+
+    scroller.upcast()
 }

@@ -1,4 +1,9 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+    sync::Arc,
+};
 
 use glib::WeakRef;
 use gtk4::prelude::*;
@@ -7,17 +12,15 @@ use libadwaita as adw;
 use qobuz_player_controls::{
     TracklistReceiver, client::Client, controls::Controls, tracklist::PlayingEntity,
 };
-use tokio::sync::mpsc;
 
 use crate::{
-    UiEvent,
+    UiEventSender,
     ui::{
-        DetailPage, DetailPageType,
+        DetailPage, DetailPageType, album_scroller,
         artist_detail_page::ArtistHeaderInfo,
         build_track_row, clickable_tile,
-        detail_page::{build_detail_header, build_detail_scaffold},
-        favorites_button::{FavoriteButtonType, new_favorite_button},
-        format_time, set_image_from_url,
+        detail_page::{DetailType, build_detail_header, build_detail_scaffold},
+        format_time, section, set_image_from_url,
     },
 };
 
@@ -42,12 +45,15 @@ pub struct AlbumDetailPage {
     artist_box: gtk4::Box,
     meta: gtk4::Label,
 
+    content: gtk4::Box,
     tracks_list: gtk4::ListBox,
 
     track_rows: Rc<RefCell<HashMap<u32, WeakRef<gtk4::ListBoxRow>>>>,
     current_selected_id: Rc<RefCell<Option<u32>>>,
     on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
+    on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
     loaded: RefCell<bool>,
+    ui_event_sender: UiEventSender,
 }
 
 impl AlbumDetailPage {
@@ -56,8 +62,9 @@ impl AlbumDetailPage {
         controls: Controls,
         client: Arc<Client>,
         tracklist_receiver: TracklistReceiver,
-        library_tx: mpsc::UnboundedSender<UiEvent>,
+        ui_event_sender: UiEventSender,
         on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
+        on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
     ) -> Self {
         let empty_title = gtk4::Box::builder().hexpand(true).build();
         let nav_bar = adw::HeaderBar::builder().title_widget(&empty_title).build();
@@ -83,31 +90,27 @@ impl AlbumDetailPage {
             .css_classes(vec!["suggested-action", "pill"])
             .build();
 
-        {
+        play_button.connect_clicked({
             let controls = controls.clone();
             let album_id = album_id.clone();
-            play_button.connect_clicked(move |_| {
+
+            move |_| {
                 controls.play_album(&album_id, 0);
-            });
-        }
+            }
+        });
 
         let header = build_detail_header(
+            client.clone(),
+            controls.clone(),
+            ui_event_sender.clone(),
             300,
             vec![
                 title.clone().upcast(),
                 artist_box.clone().upcast(),
                 meta.clone().upcast(),
             ],
-            vec![play_button.clone().upcast()],
-            {
-                let client = client.clone();
-                let library_tx = library_tx.clone();
-                let album_id = album_id.clone();
-                move || {
-                    new_favorite_button(client, FavoriteButtonType::Album(album_id), library_tx)
-                        .upcast()
-                }
-            },
+            vec![play_button],
+            DetailType::Album(album_id.clone()),
         );
 
         let scaffold = build_detail_scaffold(&header.header_section, {
@@ -136,6 +139,7 @@ impl AlbumDetailPage {
             client,
             controls,
             tracklist_receiver,
+            content: scaffold.content,
             album_id,
             stack,
             cover,
@@ -147,6 +151,8 @@ impl AlbumDetailPage {
             track_rows: Rc::new(RefCell::new(HashMap::new())),
             current_selected_id: Rc::new(RefCell::new(None)),
             on_open_artist,
+            on_open_album,
+            ui_event_sender,
         };
 
         s.load_album();
@@ -161,11 +167,13 @@ impl AlbumDetailPage {
         *self.loaded.borrow_mut() = true;
 
         let client = self.client.clone();
+        let ui_event_sender = self.ui_event_sender.clone();
         let controls = self.controls.clone();
         let tracklist_receiver = self.tracklist_receiver.clone();
         let album_id = self.album_id.clone();
 
         let stack = self.stack.clone();
+        let content = self.content.clone();
         let cover = self.cover.clone();
         let title = self.title.clone();
         let artist_box = self.artist_box.clone();
@@ -174,12 +182,13 @@ impl AlbumDetailPage {
         let track_rows = self.track_rows.clone();
         let current_selected_id = self.current_selected_id.clone();
         let on_open_artist = self.on_open_artist.clone();
+        let on_open_album = self.on_open_album.clone();
 
         stack.set_visible_child_name("loading");
 
         glib::MainContext::default().spawn_local(async move {
-            match client.album(&album_id).await {
-                Ok(album) => {
+            match tokio::try_join!(client.album(&album_id), client.suggested_albums(&album_id)) {
+                Ok((album, suggestions)) => {
                     title.set_label(&album.title);
 
                     while let Some(child) = artist_box.first_child() {
@@ -207,8 +216,23 @@ impl AlbumDetailPage {
 
                     clear_listbox(&tracks_list);
 
+                    let favorite_tracks = client
+                        .favorites()
+                        .await
+                        .map(|x| x.tracks.into_iter().map(|x| x.id).collect())
+                        .unwrap_or(HashSet::new());
+
                     for track in album.tracks {
-                        let row = build_track_row(&track, false, false, false, controls.clone());
+                        let row = build_track_row(
+                            &track,
+                            false,
+                            false,
+                            false,
+                            controls.clone(),
+                            client.clone(),
+                            ui_event_sender.clone(),
+                            &favorite_tracks,
+                        );
 
                         let weak = glib::WeakRef::new();
                         weak.set(Some(&row));
@@ -217,6 +241,13 @@ impl AlbumDetailPage {
                         track_rows.borrow_mut().insert(track.id, weak);
 
                         tracks_list.append(&row);
+                    }
+
+                    if !suggestions.is_empty() {
+                        content.append(&section(
+                            "Similar albums",
+                            album_scroller(&suggestions, on_open_album.clone()),
+                        ));
                     }
 
                     let playing_entity = tracklist_receiver.borrow().current_playing_entity();

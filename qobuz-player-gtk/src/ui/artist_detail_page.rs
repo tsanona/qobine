@@ -1,27 +1,26 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+    sync::Arc,
+};
 
 use glib::WeakRef;
 use gtk4::prelude::*;
 use libadwaita as adw;
 
 use qobuz_player_controls::{
-    TracklistReceiver,
-    client::Client,
-    controls::Controls,
-    models::{AlbumSimple, Artist},
-    tracklist::PlayingEntity,
+    TracklistReceiver, client::Client, controls::Controls, tracklist::PlayingEntity,
 };
-use tokio::sync::mpsc;
 
 use crate::{
-    UiEvent,
+    UiEventSender,
     ui::{
         DetailPage, DetailPageType,
         album_detail_page::AlbumHeaderInfo,
-        build_album_tile, build_artist_tile, build_track_row, clickable_tile,
-        detail_page::{build_detail_header, build_detail_scaffold},
-        favorites_button::{FavoriteButtonType, new_favorite_button},
-        set_image_from_url,
+        album_scroller, artist_scroller, build_track_row,
+        detail_page::{DetailType, build_detail_header, build_detail_scaffold},
+        section, set_image_from_url,
     },
 };
 
@@ -53,6 +52,7 @@ pub struct ArtistDetailPage {
     current_selected_id: Rc<RefCell<Option<u32>>>,
 
     loaded: RefCell<bool>,
+    ui_event_sender: UiEventSender,
 }
 
 impl ArtistDetailPage {
@@ -63,7 +63,7 @@ impl ArtistDetailPage {
         tracklist_receiver: TracklistReceiver,
         on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
         on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
-        library_tx: mpsc::UnboundedSender<UiEvent>,
+        ui_event_sender: UiEventSender,
     ) -> Self {
         let empty_title = gtk4::Box::builder().hexpand(true).build();
         let nav_bar = adw::HeaderBar::builder().title_widget(&empty_title).build();
@@ -79,25 +79,21 @@ impl ArtistDetailPage {
             .css_classes(vec!["suggested-action", "pill"])
             .build();
 
-        {
+        play_button.connect_clicked({
             let controls = controls.clone();
-            play_button.connect_clicked(move |_| {
+            move |_| {
                 controls.play_top_tracks(artist_id, 0);
-            });
-        }
+            }
+        });
 
         let header = build_detail_header(
+            client.clone(),
+            controls.clone(),
+            ui_event_sender.clone(),
             200,
             vec![name.clone().upcast()],
-            vec![play_button.clone().upcast()],
-            {
-                let client = client.clone();
-                let library_tx = library_tx.clone();
-                move || {
-                    new_favorite_button(client, FavoriteButtonType::Artist(artist_id), library_tx)
-                        .upcast()
-                }
-            },
+            vec![play_button],
+            DetailType::Artist(artist_id),
         );
 
         let scaffold = build_detail_scaffold(&header.header_section, {
@@ -107,10 +103,10 @@ impl ArtistDetailPage {
             }
         });
 
-        let cover = header.cover.clone();
-        let stack = scaffold.stack.clone();
-        let content = scaffold.content.clone();
-        let tracks_list = scaffold.tracks_list.clone();
+        let cover = header.cover;
+        let stack = scaffold.stack;
+        let content = scaffold.content;
+        let tracks_list = scaffold.tracks_list;
 
         let toolbar = adw::ToolbarView::new();
         toolbar.add_top_bar(&nav_bar);
@@ -137,6 +133,7 @@ impl ArtistDetailPage {
             loaded: RefCell::new(false),
             track_rows: Rc::new(RefCell::new(HashMap::new())),
             current_selected_id: Rc::new(RefCell::new(None)),
+            ui_event_sender,
         };
 
         s.load_artist();
@@ -151,6 +148,7 @@ impl ArtistDetailPage {
         *self.loaded.borrow_mut() = true;
 
         let client = self.client.clone();
+        let ui_event_sender = self.ui_event_sender.clone();
         let artist_id = self.artist_id;
 
         let stack = self.stack.clone();
@@ -178,8 +176,23 @@ impl ArtistDetailPage {
 
                     clear_listbox(&tracks_list);
 
+                    let favorite_tracks = client
+                        .favorites()
+                        .await
+                        .map(|x| x.tracks.into_iter().map(|x| x.id).collect())
+                        .unwrap_or(HashSet::new());
+
                     for track in artist.top_tracks.iter().take(10) {
-                        let row = build_track_row(track, true, false, true, controls.clone());
+                        let row = build_track_row(
+                            track,
+                            true,
+                            false,
+                            true,
+                            controls.clone(),
+                            client.clone(),
+                            ui_event_sender.clone(),
+                            &favorite_tracks,
+                        );
 
                         let weak = glib::WeakRef::new();
                         weak.set(Some(&row));
@@ -244,93 +257,6 @@ impl ArtistDetailPage {
             }
         });
     }
-}
-
-fn section(title: &str, content: gtk4::Widget) -> gtk4::Box {
-    let title = gtk4::Label::builder()
-        .label(title)
-        .css_classes(["title-3"])
-        .halign(gtk4::Align::Start)
-        .build();
-
-    let box_ = gtk4::Box::builder()
-        .orientation(gtk4::Orientation::Vertical)
-        .spacing(12)
-        .margin_top(24)
-        .build();
-
-    box_.append(&title);
-    box_.append(&content);
-
-    box_
-}
-
-fn album_scroller(
-    albums: &[AlbumSimple],
-    on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
-) -> gtk4::Widget {
-    let box_ = gtk4::Box::builder()
-        .orientation(gtk4::Orientation::Horizontal)
-        .spacing(12)
-        .margin_top(6)
-        .margin_bottom(6)
-        .build();
-
-    for album in albums {
-        let tile = build_album_tile(album).upcast::<gtk4::Widget>();
-
-        let album_id = album.id.clone();
-        let on_open = on_open_album.clone();
-
-        let button = clickable_tile(&tile, move || {
-            on_open(AlbumHeaderInfo {
-                id: album_id.clone(),
-            });
-        });
-
-        box_.append(&button);
-    }
-
-    let scroller = gtk4::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk4::PolicyType::Automatic)
-        .vscrollbar_policy(gtk4::PolicyType::Never)
-        .child(&box_)
-        .build();
-
-    scroller.upcast()
-}
-
-fn artist_scroller(
-    artists: &[Artist],
-    on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
-) -> gtk4::Widget {
-    let box_ = gtk4::Box::builder()
-        .orientation(gtk4::Orientation::Horizontal)
-        .spacing(12)
-        .margin_top(6)
-        .margin_bottom(6)
-        .build();
-
-    for artist in artists {
-        let tile = build_artist_tile(artist).upcast::<gtk4::Widget>();
-
-        let artist_id = artist.id;
-        let on_open = on_open_artist.clone();
-
-        let button = clickable_tile(&tile, move || {
-            on_open(ArtistHeaderInfo { id: artist_id });
-        });
-
-        box_.append(&button);
-    }
-
-    let scroller = gtk4::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk4::PolicyType::Automatic)
-        .vscrollbar_policy(gtk4::PolicyType::Never)
-        .child(&box_)
-        .build();
-
-    scroller.upcast()
 }
 
 impl DetailPage for ArtistDetailPage {

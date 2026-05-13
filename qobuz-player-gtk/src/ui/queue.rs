@@ -2,20 +2,27 @@ use adw::prelude::*;
 use gtk::gdk;
 use gtk4 as gtk;
 use libadwaita as adw;
+use qobuz_player_controls::client::Client;
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use qobuz_player_controls::controls::Controls;
 use qobuz_player_controls::models::{Track, TrackStatus};
 use qobuz_player_controls::tracklist::{QueueItem, Tracklist};
 
+use crate::UiEventSender;
 use crate::ui::build_track_row;
 
+#[derive(Clone)]
 pub struct QueuePage {
     root: gtk::Box,
     controls: Controls,
+    client: Arc<Client>,
+    ui_event_sender: UiEventSender,
+    favorite_tracks: Rc<RefCell<HashSet<u32>>>,
 
     listbox: gtk::ListBox,
     queue_items: Rc<RefCell<Vec<QueueItem>>>,
@@ -23,7 +30,7 @@ pub struct QueuePage {
 }
 
 impl QueuePage {
-    pub fn new(controls: Controls) -> Self {
+    pub fn new(controls: Controls, client: Arc<Client>, ui_event_sender: UiEventSender) -> Self {
         let listbox = gtk::ListBox::builder()
             .selection_mode(gtk::SelectionMode::Single)
             .css_classes(vec![String::from("boxed-list")])
@@ -73,9 +80,12 @@ impl QueuePage {
         Self {
             root,
             controls,
+            client,
             listbox,
             queue_items,
             rows_by_queue_id,
+            ui_event_sender,
+            favorite_tracks: Default::default(),
         }
     }
 
@@ -99,17 +109,29 @@ impl QueuePage {
             self.queue_items.clone(),
             self.rows_by_queue_id.clone(),
             self.controls.clone(),
+            self.client.clone(),
+            self.ui_event_sender.clone(),
             new_queue_items,
+            self.favorite_tracks.clone(),
         );
+    }
+
+    pub fn favorite_tracks_changed(&self, tracks: HashSet<u32>) {
+        let mut favorite_tracks = self.favorite_tracks.borrow_mut();
+        *favorite_tracks = tracks;
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sync_queue_list(
     listbox: &gtk::ListBox,
     queue_items: Rc<RefCell<Vec<QueueItem>>>,
     rows_by_queue_id: Rc<RefCell<HashMap<u64, gtk::ListBoxRow>>>,
     controls: Controls,
+    client: Arc<Client>,
+    ui_event_sender: UiEventSender,
     new_queue_items: Vec<QueueItem>,
+    favorite_tracks: Rc<RefCell<HashSet<u32>>>,
 ) {
     let old_track_by_queue_id: HashMap<u64, u32> = queue_items
         .borrow()
@@ -143,7 +165,13 @@ fn sync_queue_list(
         let row = if let Some(row) = rows_by_queue_id.borrow().get(&item.queue_id) {
             row.clone()
         } else {
-            let row = build_queue_row(item, controls.clone());
+            let row = build_queue_row(
+                item,
+                controls.clone(),
+                client.clone(),
+                ui_event_sender.clone(),
+                favorite_tracks.clone(),
+            );
 
             row.set_activatable(true);
             row.set_selectable(true);
@@ -155,6 +183,9 @@ fn sync_queue_list(
                 queue_items.clone(),
                 rows_by_queue_id.clone(),
                 controls.clone(),
+                client.clone(),
+                ui_event_sender.clone(),
+                favorite_tracks.clone(),
             );
 
             rows_by_queue_id
@@ -198,8 +229,23 @@ fn sync_queue_list(
     }
 }
 
-fn build_queue_row(item: &QueueItem, controls: Controls) -> gtk::ListBoxRow {
-    let row = build_track_row(&item.track, true, true, false, controls.clone());
+fn build_queue_row(
+    item: &QueueItem,
+    controls: Controls,
+    client: Arc<Client>,
+    ui_event_sender: UiEventSender,
+    favorite_tracks: Rc<RefCell<HashSet<u32>>>,
+) -> gtk::ListBoxRow {
+    let row = build_track_row(
+        &item.track,
+        true,
+        true,
+        false,
+        controls,
+        client,
+        ui_event_sender,
+        &favorite_tracks.borrow(),
+    );
 
     if let Some(child) = row.child()
         && let Ok(hbox) = child.downcast::<gtk::Box>()
@@ -237,12 +283,16 @@ fn is_played(track: &Track) -> bool {
     matches!(track.status, TrackStatus::Played)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn install_row_behaviors(
     listbox: &gtk::ListBox,
     row: &gtk::ListBoxRow,
     queue_items: Rc<RefCell<Vec<QueueItem>>>,
     rows_by_queue_id: Rc<RefCell<HashMap<u64, gtk::ListBoxRow>>>,
     controls: Controls,
+    client: Arc<Client>,
+    ui_event_sender: UiEventSender,
+    favorite_tracks: Rc<RefCell<HashSet<u32>>>,
 ) {
     if let Some(child) = row.child()
         && let Ok(hbox) = child.downcast::<gtk::Box>()
@@ -253,9 +303,12 @@ fn install_row_behaviors(
         let row_weak = row.downgrade();
         let queue_items_clone = queue_items.clone();
         let rows_by_queue_id_clone = rows_by_queue_id.clone();
+        let favorite_tracks = favorite_tracks.clone();
 
         remove_btn.connect_clicked({
             let controls = controls.clone();
+            let client = client.clone();
+            let ui_event_sender = ui_event_sender.clone();
 
             move |_| {
                 let Some(listbox) = listbox_weak.upgrade() else {
@@ -298,7 +351,10 @@ fn install_row_behaviors(
                     queue_items_clone.clone(),
                     rows_by_queue_id_clone.clone(),
                     controls.clone(),
+                    client.clone(),
+                    ui_event_sender.clone(),
                     new_queue_items,
+                    favorite_tracks.clone(),
                 );
             }
         });
@@ -327,93 +383,96 @@ fn install_row_behaviors(
 
     let drop_target = gtk::DropTarget::new(i32::static_type(), gdk::DragAction::MOVE);
 
-    {
+    drop_target.connect_drop({
         let listbox_weak = listbox.downgrade();
         let row_weak = row.downgrade();
         let queue_items_clone = queue_items.clone();
         let rows_by_queue_id_clone = rows_by_queue_id.clone();
 
-        drop_target.connect_drop({
-            let controls = controls.clone();
+        let controls = controls.clone();
+        let client = client.clone();
+        let favorite_tracks = favorite_tracks.clone();
 
-            move |_target, value, _x, y| {
-                let Some(listbox) = listbox_weak.upgrade() else {
+        move |_target, value, _x, y| {
+            let Some(listbox) = listbox_weak.upgrade() else {
+                return false;
+            };
+
+            let Some(row) = row_weak.upgrade() else {
+                return false;
+            };
+
+            let Ok(from_index) = value.get::<i32>() else {
+                return false;
+            };
+
+            let mut to_index = row.index();
+
+            if to_index < 0 {
+                return false;
+            }
+
+            let h = row.height() as f64;
+
+            if y > h / 2.0 {
+                to_index += 1;
+            }
+
+            let new_queue_items = {
+                let mut vec = queue_items_clone.borrow_mut();
+                let len = vec.len() as i32;
+
+                if from_index < 0 || from_index >= len {
                     return false;
-                };
-
-                let Some(row) = row_weak.upgrade() else {
-                    return false;
-                };
-
-                let Ok(from_index) = value.get::<i32>() else {
-                    return false;
-                };
-
-                let mut to_index = row.index();
+                }
 
                 if to_index < 0 {
-                    return false;
+                    to_index = 0;
                 }
 
-                let h = row.height() as f64;
-
-                if y > h / 2.0 {
-                    to_index += 1;
+                if to_index > len {
+                    to_index = len;
                 }
 
-                let new_queue_items = {
-                    let mut vec = queue_items_clone.borrow_mut();
-                    let len = vec.len() as i32;
+                if from_index == to_index || from_index + 1 == to_index {
+                    return true;
+                }
 
-                    if from_index < 0 || from_index >= len {
-                        return false;
-                    }
+                let original_len = vec.len();
+                let mut order: Vec<usize> = (0..original_len).collect();
 
-                    if to_index < 0 {
-                        to_index = 0;
-                    }
+                let item = vec.remove(from_index as usize);
 
-                    if to_index > len {
-                        to_index = len;
-                    }
+                if from_index < to_index {
+                    to_index = to_index.saturating_sub(1);
+                }
 
-                    if from_index == to_index || from_index + 1 == to_index {
-                        return true;
-                    }
+                if to_index as usize > vec.len() {
+                    to_index = vec.len() as i32;
+                }
 
-                    let original_len = vec.len();
-                    let mut order: Vec<usize> = (0..original_len).collect();
+                vec.insert(to_index as usize, item);
 
-                    let item = vec.remove(from_index as usize);
+                move_index(&mut order, from_index, to_index);
+                controls.reorder_queue(order);
 
-                    if from_index < to_index {
-                        to_index = to_index.saturating_sub(1);
-                    }
+                vec.clone()
+            };
 
-                    if to_index as usize > vec.len() {
-                        to_index = vec.len() as i32;
-                    }
+            sync_queue_list(
+                &listbox,
+                queue_items_clone.clone(),
+                rows_by_queue_id_clone.clone(),
+                controls.clone(),
+                client.clone(),
+                ui_event_sender.clone(),
+                new_queue_items,
+                favorite_tracks.clone(),
+            );
 
-                    vec.insert(to_index as usize, item);
-
-                    move_index(&mut order, from_index, to_index);
-                    controls.reorder_queue(order);
-
-                    vec.clone()
-                };
-
-                sync_queue_list(
-                    &listbox,
-                    queue_items_clone.clone(),
-                    rows_by_queue_id_clone.clone(),
-                    controls.clone(),
-                    new_queue_items,
-                );
-
-                true
-            }
-        });
-    }
+            true
+        }
+    });
 
     row.add_controller(drop_target);
 }

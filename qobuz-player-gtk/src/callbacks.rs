@@ -81,6 +81,7 @@ pub fn build_callbacks(
                     }
 
                     let open_artist = callbacks.open_artist.clone();
+                    let open_album = callbacks.open_album.clone();
 
                     let detail = AlbumDetailPage::new(
                         info.id,
@@ -89,6 +90,7 @@ pub fn build_callbacks(
                         tracklist_receiver,
                         sender,
                         open_artist,
+                        open_album,
                     );
 
                     app_nav.push(detail.page());

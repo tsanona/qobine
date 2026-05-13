@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc, sync::Arc};
+use std::{cell::RefCell, collections::HashSet, rc::Rc, sync::Arc};
 
 use gtk4::prelude::*;
 use libadwaita as adw;
@@ -6,14 +6,12 @@ use libadwaita as adw;
 use qobuz_player_controls::{
     TracklistReceiver, client::Client, controls::Controls, tracklist::PlayingEntity,
 };
-use tokio::sync::mpsc;
 
 use crate::{
-    UiEvent,
+    UiEventSender,
     ui::{
         DetailPage, DetailPageType, build_track_row,
-        detail_page::{build_detail_header, build_detail_scaffold},
-        favorites_button::{FavoriteButtonType, new_favorite_button},
+        detail_page::{DetailType, build_detail_header, build_detail_scaffold},
         format_time, set_image_from_url,
     },
 };
@@ -42,6 +40,7 @@ pub struct PlaylistDetailPage {
     current_selected_index: Rc<RefCell<Option<usize>>>,
 
     loaded: RefCell<bool>,
+    ui_event_sender: UiEventSender,
 }
 
 impl PlaylistDetailPage {
@@ -50,7 +49,7 @@ impl PlaylistDetailPage {
         controls: Controls,
         client: Arc<Client>,
         tracklist_receiver: TracklistReceiver,
-        library_tx: mpsc::UnboundedSender<UiEvent>,
+        ui_event_sender: UiEventSender,
     ) -> Self {
         let empty_title = gtk4::Box::builder().hexpand(true).build();
         let nav_bar = adw::HeaderBar::builder().title_widget(&empty_title).build();
@@ -71,12 +70,12 @@ impl PlaylistDetailPage {
             .css_classes(vec!["suggested-action", "pill"])
             .build();
 
-        {
+        play_button.connect_clicked({
             let controls = controls.clone();
-            play_button.connect_clicked(move |_| {
+            move |_| {
                 controls.play_playlist(playlist_id, 0, false);
-            });
-        }
+            }
+        });
 
         let shuffle_button = gtk4::Button::builder()
             .label("Shuffle")
@@ -84,32 +83,24 @@ impl PlaylistDetailPage {
             .css_classes(vec!["pill"])
             .build();
 
-        {
+        shuffle_button.connect_clicked({
             let controls = controls.clone();
-            shuffle_button.connect_clicked(move |_| {
+            move |_| {
                 controls.play_playlist(playlist_id, 0, true);
-            });
-        }
+            }
+        });
 
         let header = build_detail_header(
+            client.clone(),
+            controls.clone(),
+            ui_event_sender.clone(),
             300,
             vec![title.clone().upcast(), meta.clone().upcast()],
             vec![
                 play_button.clone().upcast(),
                 shuffle_button.clone().upcast(),
             ],
-            {
-                let client = client.clone();
-                let library_tx = library_tx.clone();
-                move || {
-                    new_favorite_button(
-                        client,
-                        FavoriteButtonType::Playlist(playlist_id),
-                        library_tx,
-                    )
-                    .upcast()
-                }
-            },
+            DetailType::Playlist(playlist_id),
         );
 
         let scaffold = build_detail_scaffold(&header.header_section, {
@@ -145,6 +136,7 @@ impl PlaylistDetailPage {
             tracks_list,
             loaded: RefCell::new(false),
             current_selected_index: Rc::new(RefCell::new(None)),
+            ui_event_sender,
         };
 
         s.load_playlist();
@@ -159,6 +151,7 @@ impl PlaylistDetailPage {
         *self.loaded.borrow_mut() = true;
 
         let client = self.client.clone();
+        let ui_event_sender = self.ui_event_sender.clone();
         let controls = self.controls.clone();
         let playlist_id = self.playlist_id;
 
@@ -184,8 +177,23 @@ impl PlaylistDetailPage {
 
                     clear_listbox(&tracks_list);
 
+                    let favorite_tracks = client
+                        .favorites()
+                        .await
+                        .map(|x| x.tracks.into_iter().map(|x| x.id).collect())
+                        .unwrap_or(HashSet::new());
+
                     for track in playlist.tracks {
-                        let row = build_track_row(&track, true, true, false, controls.clone());
+                        let row = build_track_row(
+                            &track,
+                            true,
+                            true,
+                            false,
+                            controls.clone(),
+                            client.clone(),
+                            ui_event_sender.clone(),
+                            &favorite_tracks,
+                        );
                         tracks_list.append(&row);
                     }
 

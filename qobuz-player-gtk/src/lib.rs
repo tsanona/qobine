@@ -11,7 +11,7 @@ use qobuz_player_controls::{
     error::Error,
     tracklist::Tracklist,
 };
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::{self, UnboundedSender};
 use webkit6::{WebView, prelude::*};
 
 use crate::{
@@ -239,6 +239,7 @@ fn build_ui(
         on_open_album.clone(),
         on_open_artist.clone(),
         on_open_playlist.clone(),
+        ui_sender.clone(),
     );
 
     let root_page = adw::NavigationPage::builder()
@@ -357,6 +358,7 @@ fn setup_tracklist_listener(
     });
 }
 
+type UiEventSender = UnboundedSender<UiEvent>;
 enum UiEvent {
     Tracklist(Tracklist),
     Status(Status),

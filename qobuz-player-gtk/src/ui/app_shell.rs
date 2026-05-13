@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use gtk4::glib;
@@ -12,8 +13,10 @@ use qobuz_player_controls::database::Database;
 use qobuz_player_controls::tracklist::Tracklist;
 use tokio::sync::mpsc;
 
+use crate::UiEventSender;
 use crate::ui::albums_page::{AlbumsPage, new_albums_page};
 use crate::ui::artists_page::{ArtistsPage, new_artists_page};
+use crate::ui::favorite_tracks_page::FavoriteTracksPage;
 use crate::ui::playlists_page::{PlaylistsPage, new_playlists_page};
 use crate::ui::preferences::build_preferences_menu;
 use crate::ui::queue::QueuePage;
@@ -27,6 +30,7 @@ const SIDEBAR_QUEUE: u32 = 0;
 const SIDEBAR_ALBUMS: u32 = 1;
 const SIDEBAR_ARTISTS: u32 = 2;
 const SIDEBAR_PLAYLISTS: u32 = 3;
+const SIDEBAR_TRACKS: u32 = 4;
 
 pub struct AppShell {
     root: adw::NavigationSplitView,
@@ -36,6 +40,7 @@ pub struct AppShell {
     albums_page: Rc<RefCell<AlbumsPage>>,
     artists_page: Rc<RefCell<ArtistsPage>>,
     playlists_page: Rc<RefCell<PlaylistsPage>>,
+    favorite_tracks_page: FavoriteTracksPage,
     queue_page: QueuePage,
 }
 
@@ -52,11 +57,14 @@ impl AppShell {
         on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
         on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
         on_open_playlist: Rc<dyn Fn(PlaylistHeaderInfo)>,
+        ui_event_sender: UiEventSender,
     ) -> Self {
         let albums_page = Rc::new(RefCell::new(new_albums_page(on_open_album.clone())));
         let artists_page = Rc::new(RefCell::new(new_artists_page(on_open_artist.clone())));
         let playlists_page = Rc::new(RefCell::new(new_playlists_page(on_open_playlist.clone())));
-        let queue_page = QueuePage::new(controls.clone());
+        let favorite_tracks_page =
+            FavoriteTracksPage::new(controls.clone(), client.clone(), ui_event_sender.clone());
+        let queue_page = QueuePage::new(controls.clone(), client.clone(), ui_event_sender.clone());
 
         let search_page = Rc::new(RefCell::new(SearchPage::new(
             client.clone(),
@@ -74,6 +82,7 @@ impl AppShell {
         stack.add_named(albums_page.borrow().widget(), Some("albums"));
         stack.add_named(artists_page.borrow().widget(), Some("artists"));
         stack.add_named(playlists_page.borrow().widget(), Some("playlists"));
+        stack.add_named(favorite_tracks_page.widget(), Some("tracks"));
         stack.add_named(search_page.borrow().widget(), Some("search"));
 
         let spinner = gtk4::Spinner::new();
@@ -113,7 +122,7 @@ impl AppShell {
         library_section.append(
             adw::SidebarItem::builder()
                 .title("Albums")
-                .icon_name("folder-music-symbolic")
+                .icon_name("media-optical-symbolic")
                 .build(),
         );
 
@@ -131,13 +140,20 @@ impl AppShell {
                 .build(),
         );
 
+        library_section.append(
+            adw::SidebarItem::builder()
+                .title("Tracks")
+                .icon_name("folder-music-symbolic")
+                .build(),
+        );
+
         sidebar.append(queue_section);
         sidebar.append(library_section);
 
         let sidebar_header = adw::HeaderBar::new();
         sidebar_header.set_show_end_title_buttons(false);
 
-        let sidebar_title = adw::WindowTitle::builder().title("Library").build();
+        let sidebar_title = adw::WindowTitle::builder().build();
         sidebar_header.set_title_widget(Some(&sidebar_title));
 
         let content_header = adw::HeaderBar::new();
@@ -292,6 +308,7 @@ impl AppShell {
                     SIDEBAR_ALBUMS => stack.set_visible_child_name("albums"),
                     SIDEBAR_ARTISTS => stack.set_visible_child_name("artists"),
                     SIDEBAR_PLAYLISTS => stack.set_visible_child_name("playlists"),
+                    SIDEBAR_TRACKS => stack.set_visible_child_name("tracks"),
                     _ => {}
                 }
             }
@@ -372,6 +389,22 @@ impl AppShell {
                             sidebar.set_selected(SIDEBAR_PLAYLISTS);
                         }
                     }
+                    "tracks" => {
+                        filter_button.set_visible(true);
+                        search_button.set_active(false);
+
+                        content_title.set_title("Tracks");
+
+                        if filter_button.is_active() {
+                            content_header.set_title_widget(Some(&filter_entry));
+                        } else {
+                            content_header.set_title_widget(Some(&content_title));
+                        }
+
+                        if sidebar.selected() != SIDEBAR_TRACKS {
+                            sidebar.set_selected(SIDEBAR_TRACKS);
+                        }
+                    }
                     "search" => {
                         filter_button.set_active(false);
                         filter_button.set_visible(false);
@@ -402,6 +435,7 @@ impl AppShell {
             artists_page,
             playlists_page,
             queue_page,
+            favorite_tracks_page,
         }
     }
 
@@ -417,6 +451,8 @@ impl AppShell {
             &self.albums_page,
             &self.artists_page,
             &self.playlists_page,
+            &self.favorite_tracks_page,
+            &self.queue_page,
         );
     }
 
@@ -425,6 +461,7 @@ impl AppShell {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn reload_favorites(
     client: Arc<Client>,
     spinner: &gtk4::Spinner,
@@ -432,10 +469,15 @@ fn reload_favorites(
     albums_page: &Rc<RefCell<AlbumsPage>>,
     artists_page: &Rc<RefCell<ArtistsPage>>,
     playlists_page: &Rc<RefCell<PlaylistsPage>>,
+    favorite_tracks_page: &FavoriteTracksPage,
+    queue_page: &QueuePage,
 ) {
     let albums_page = albums_page.clone();
     let artists_page = artists_page.clone();
     let playlists_page = playlists_page.clone();
+    let favorite_tracks_page = favorite_tracks_page.clone();
+    let queue_page = queue_page.clone();
+
     let spinner = spinner.clone();
     let waiting_label = waiting_label.clone();
 
@@ -451,9 +493,16 @@ fn reload_favorites(
 
                 albums_page.borrow_mut().load(favorites.albums);
                 artists_page.borrow_mut().load(favorites.artists);
+
                 playlists_page
                     .borrow_mut()
                     .load(favorites.playlists.into_iter().map(|x| x.into()).collect());
+
+                let favorite_tracks: HashSet<_> = favorites.tracks.iter().map(|x| x.id).collect();
+
+                favorite_tracks_page.load(favorites.tracks);
+
+                queue_page.favorite_tracks_changed(favorite_tracks);
             }
             Err(err) => {
                 spinner.set_visible(false);
