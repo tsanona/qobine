@@ -110,7 +110,13 @@ impl AlbumDetailPage {
             },
         );
 
-        let scaffold = build_detail_scaffold(&header.header_section);
+        let scaffold = build_detail_scaffold(&header.header_section, {
+            let controls = controls.clone();
+            let album_id = album_id.clone();
+            move |index| {
+                controls.play_album(&album_id, index);
+            }
+        });
 
         let cover = header.cover.clone();
         let stack = scaffold.stack.clone();
@@ -201,8 +207,8 @@ impl AlbumDetailPage {
 
                     clear_listbox(&tracks_list);
 
-                    for (idx, track) in album.tracks.iter().enumerate() {
-                        let row = build_track_row(track, false, false, false);
+                    for track in album.tracks {
+                        let row = build_track_row(&track, false, false, false, controls.clone());
 
                         let weak = glib::WeakRef::new();
                         weak.set(Some(&row));
@@ -210,16 +216,6 @@ impl AlbumDetailPage {
                         weak.set(Some(&row));
                         track_rows.borrow_mut().insert(track.id, weak);
 
-                        let controls = controls.clone();
-                        let album_id = album_id.clone();
-                        let click_index = idx;
-
-                        let click = gtk4::GestureClick::new();
-                        click.connect_pressed(move |_, _, _, _| {
-                            controls.play_album(&album_id, click_index);
-                        });
-
-                        row.add_controller(click);
                         tracks_list.append(&row);
                     }
 

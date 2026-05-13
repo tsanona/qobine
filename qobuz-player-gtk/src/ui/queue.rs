@@ -143,7 +143,7 @@ fn sync_queue_list(
         let row = if let Some(row) = rows_by_queue_id.borrow().get(&item.queue_id) {
             row.clone()
         } else {
-            let row = build_queue_row(item);
+            let row = build_queue_row(item, controls.clone());
 
             row.set_activatable(true);
             row.set_selectable(true);
@@ -198,8 +198,8 @@ fn sync_queue_list(
     }
 }
 
-fn build_queue_row(item: &QueueItem) -> gtk::ListBoxRow {
-    let row = build_track_row(&item.track, true, true, false);
+fn build_queue_row(item: &QueueItem, controls: Controls) -> gtk::ListBoxRow {
+    let row = build_track_row(&item.track, true, true, false, controls.clone());
 
     if let Some(child) = row.child()
         && let Ok(hbox) = child.downcast::<gtk::Box>()

@@ -100,7 +100,12 @@ impl ArtistDetailPage {
             },
         );
 
-        let scaffold = build_detail_scaffold(&header.header_section);
+        let scaffold = build_detail_scaffold(&header.header_section, {
+            let controls = controls.clone();
+            move |index| {
+                controls.play_top_tracks(artist_id, index);
+            }
+        });
 
         let cover = header.cover.clone();
         let stack = scaffold.stack.clone();
@@ -173,8 +178,8 @@ impl ArtistDetailPage {
 
                     clear_listbox(&tracks_list);
 
-                    for (idx, track) in artist.top_tracks.iter().take(10).enumerate() {
-                        let row = build_track_row(track, true, false, true);
+                    for track in artist.top_tracks.iter().take(10) {
+                        let row = build_track_row(track, true, false, true, controls.clone());
 
                         let weak = glib::WeakRef::new();
                         weak.set(Some(&row));
@@ -182,15 +187,6 @@ impl ArtistDetailPage {
                         weak.set(Some(&row));
                         track_rows.borrow_mut().insert(track.id, weak);
 
-                        let controls = controls.clone();
-                        let click_index = idx as i32;
-
-                        let click = gtk4::GestureClick::new();
-                        click.connect_pressed(move |_, _, _, _| {
-                            controls.play_top_tracks(artist_id, click_index as usize);
-                        });
-
-                        row.add_controller(click);
                         tracks_list.append(&row);
                     }
 

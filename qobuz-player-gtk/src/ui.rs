@@ -1,6 +1,10 @@
-use gtk4::{Image, gdk, gio, prelude::*};
-use libadwaita::{self as adw, NavigationPage};
+use gtk4 as gtk;
+use libadwaita as adw;
+
+use adw::NavigationPage;
+use gtk::{Image, gdk, gio, prelude::*};
 use qobuz_player_controls::{
+    controls::Controls,
     models::{AlbumSimple, Artist, PlaylistSimple, Track},
     tracklist::PlayingEntity,
 };
@@ -42,24 +46,24 @@ pub fn set_image_from_url(url: Option<&str>, image: &Image) {
 }
 
 pub fn build_album_tile(album: &AlbumSimple) -> adw::Bin {
-    let vbox = gtk4::Box::builder()
-        .orientation(gtk4::Orientation::Vertical)
+    let vbox = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
         .spacing(6)
         .build();
 
-    let cover = gtk4::Image::builder().pixel_size(200).build();
+    let cover = gtk::Image::builder().pixel_size(200).build();
     set_image_from_url(Some(&album.image), &cover);
-    let cover_frame = gtk4::Frame::builder().child(&cover).build();
+    let cover_frame = gtk::Frame::builder().child(&cover).build();
     cover_frame.add_css_class("card");
 
-    let title = gtk4::Label::builder()
+    let title = gtk::Label::builder()
         .label(&album.title)
         .xalign(0.0)
         .wrap(true)
         .max_width_chars(20)
         .build();
 
-    let artist = gtk4::Label::builder()
+    let artist = gtk::Label::builder()
         .label(&album.artist.name)
         .xalign(0.0)
         .css_classes(vec![String::from("dim-label")])
@@ -81,17 +85,17 @@ pub fn build_album_tile(album: &AlbumSimple) -> adw::Bin {
 }
 
 pub fn build_playlist_tile(playlist: &PlaylistSimple) -> adw::Bin {
-    let vbox = gtk4::Box::builder()
-        .orientation(gtk4::Orientation::Vertical)
+    let vbox = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
         .spacing(6)
         .build();
 
-    let cover = gtk4::Image::builder().pixel_size(200).build();
+    let cover = gtk::Image::builder().pixel_size(200).build();
     set_image_from_url(playlist.image.as_deref(), &cover);
-    let cover_frame = gtk4::Frame::builder().child(&cover).build();
+    let cover_frame = gtk::Frame::builder().child(&cover).build();
     cover_frame.add_css_class("card");
 
-    let title = gtk4::Label::builder()
+    let title = gtk::Label::builder()
         .label(&playlist.title)
         .xalign(0.0)
         .wrap(true)
@@ -111,17 +115,17 @@ pub fn build_playlist_tile(playlist: &PlaylistSimple) -> adw::Bin {
 }
 
 pub fn build_artist_tile(artist: &Artist) -> adw::Bin {
-    let vbox = gtk4::Box::builder()
-        .orientation(gtk4::Orientation::Vertical)
+    let vbox = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
         .spacing(6)
         .build();
 
-    let cover = gtk4::Image::builder().pixel_size(200).build();
+    let cover = gtk::Image::builder().pixel_size(200).build();
     set_image_from_url(artist.image.as_deref(), &cover);
-    let cover_frame = gtk4::Frame::builder().child(&cover).build();
+    let cover_frame = gtk::Frame::builder().child(&cover).build();
     cover_frame.add_css_class("card");
 
-    let title = gtk4::Label::builder()
+    let title = gtk::Label::builder()
         .label(&artist.name)
         .xalign(0.0)
         .wrap(true)
@@ -140,11 +144,11 @@ pub fn build_artist_tile(artist: &Artist) -> adw::Bin {
         .build()
 }
 
-pub fn clickable_tile<F>(child: &gtk4::Widget, on_click: F) -> gtk4::Button
+pub fn clickable_tile<F>(child: &gtk::Widget, on_click: F) -> gtk::Button
 where
     F: Fn() + 'static,
 {
-    let button = gtk4::Button::builder().child(child).build();
+    let button = gtk::Button::builder().child(child).build();
 
     button.set_has_frame(false);
     button.add_css_class("flat");
@@ -198,9 +202,10 @@ pub fn build_track_row(
     show_cover: bool,
     show_artist: bool,
     show_album: bool,
-) -> gtk4::ListBoxRow {
-    let track_row_box = gtk4::Box::builder()
-        .orientation(gtk4::Orientation::Horizontal)
+    controls: Controls,
+) -> gtk::ListBoxRow {
+    let track_row_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
         .spacing(12)
         .margin_top(10)
         .margin_bottom(10)
@@ -210,56 +215,63 @@ pub fn build_track_row(
 
     match show_cover {
         true => {
-            let cover = gtk4::Image::builder().pixel_size(50).build();
-            set_image_from_url(track.image.as_deref(), &cover);
-            let cover_frame = gtk4::Frame::builder().child(&cover).build();
-            cover_frame.add_css_class("card");
+            let cover = gtk::Image::builder().pixel_size(50).build();
 
+            set_image_from_url(track.image.as_deref(), &cover);
+
+            let cover_frame = gtk::Frame::builder().child(&cover).build();
+
+            cover_frame.add_css_class("card");
             track_row_box.append(&cover_frame);
         }
         false => {
-            let number_label = gtk4::Label::builder()
+            let number_label = gtk::Label::builder()
                 .label(format!("{:>2}", track.number))
                 .xalign(0.0)
                 .css_classes(vec!["dim-label"])
                 .width_chars(3)
                 .build();
+
             track_row_box.append(&number_label);
         }
     }
 
-    let title_label = gtk4::Label::builder()
+    let title_label = gtk::Label::builder()
         .label(track.title.clone())
         .xalign(0.0)
         .hexpand(true)
-        .ellipsize(gtk4::pango::EllipsizeMode::End)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
         .build();
+
     match show_artist || show_album {
         true => {
-            let title_box = gtk4::Box::builder()
-                .orientation(gtk4::Orientation::Vertical)
+            let title_box = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
                 .spacing(6)
+                .hexpand(true)
                 .build();
+
             title_box.append(&title_label);
+
             if show_artist && let Some(artist_name) = &track.artist_name {
-                let artist_label = gtk4::Label::builder()
+                let artist_label = gtk::Label::builder()
                     .label(artist_name.clone())
                     .css_classes(vec![String::from("dim-label")])
                     .xalign(0.0)
                     .hexpand(true)
-                    .ellipsize(gtk4::pango::EllipsizeMode::End)
+                    .ellipsize(gtk::pango::EllipsizeMode::End)
                     .build();
 
                 title_box.append(&artist_label);
             }
 
             if show_album && let Some(album_title) = &track.album_title {
-                let album_label = gtk4::Label::builder()
+                let album_label = gtk::Label::builder()
                     .label(album_title.clone())
                     .css_classes(vec![String::from("dim-label")])
                     .xalign(0.0)
                     .hexpand(true)
-                    .ellipsize(gtk4::pango::EllipsizeMode::End)
+                    .ellipsize(gtk::pango::EllipsizeMode::End)
                     .build();
 
                 title_box.append(&album_label);
@@ -272,7 +284,7 @@ pub fn build_track_row(
         }
     }
 
-    let duration_label = gtk4::Label::builder()
+    let duration_label = gtk::Label::builder()
         .label(format_time(track.duration_seconds))
         .xalign(1.0)
         .css_classes(vec!["dim-label"])
@@ -280,5 +292,52 @@ pub fn build_track_row(
 
     track_row_box.append(&duration_label);
 
-    gtk4::ListBoxRow::builder().child(&track_row_box).build()
+    let menu = gio::Menu::new();
+
+    menu.append(Some("Add to queue"), Some("track.add-to-queue"));
+
+    menu.append(Some("Play next"), Some("track.play-next"));
+
+    let action_group = gio::SimpleActionGroup::new();
+
+    let add_to_queue_action = gio::SimpleAction::new("add-to-queue", None);
+
+    let controls_for_queue = controls.clone();
+    let track_id = track.id;
+
+    add_to_queue_action.connect_activate(move |_, _| {
+        controls_for_queue.add_tracks_to_queue(vec![track_id]);
+    });
+
+    action_group.add_action(&add_to_queue_action);
+
+    let play_next_action = gio::SimpleAction::new("play-next", None);
+
+    let controls_for_next = controls.clone();
+
+    play_next_action.connect_activate(move |_, _| {
+        controls_for_next.play_tracks_next(vec![track_id]);
+    });
+
+    action_group.add_action(&play_next_action);
+
+    let popover_menu = gtk::PopoverMenu::from_model(Some(&menu));
+
+    let menu_button = gtk::MenuButton::builder()
+        .icon_name("view-more-symbolic")
+        .tooltip_text("Track options")
+        .popover(&popover_menu)
+        .valign(gtk::Align::Center)
+        .build();
+
+    menu_button.add_css_class("flat");
+    menu_button.insert_action_group("track", Some(&action_group));
+
+    track_row_box.append(&menu_button);
+
+    gtk::ListBoxRow::builder()
+        .child(&track_row_box)
+        .activatable(true)
+        .selectable(true)
+        .build()
 }

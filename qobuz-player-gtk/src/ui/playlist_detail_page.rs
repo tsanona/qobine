@@ -112,7 +112,12 @@ impl PlaylistDetailPage {
             },
         );
 
-        let scaffold = build_detail_scaffold(&header.header_section);
+        let scaffold = build_detail_scaffold(&header.header_section, {
+            let controls = controls.clone();
+            move |index| {
+                controls.play_playlist(playlist_id, index, false);
+            }
+        });
 
         let cover = header.cover.clone();
         let stack = scaffold.stack.clone();
@@ -179,19 +184,8 @@ impl PlaylistDetailPage {
 
                     clear_listbox(&tracks_list);
 
-                    for (idx, track) in playlist.tracks.iter().enumerate() {
-                        let row = build_track_row(track, true, true, false);
-
-                        let controls = controls.clone();
-                        let playlist_id = playlist_id;
-                        let click_index = idx as i32;
-
-                        let click = gtk4::GestureClick::new();
-                        click.connect_pressed(move |_, _, _, _| {
-                            controls.play_playlist(playlist_id, click_index as usize, false);
-                        });
-
-                        row.add_controller(click);
+                    for track in playlist.tracks {
+                        let row = build_track_row(&track, true, true, false, controls.clone());
                         tracks_list.append(&row);
                     }
 

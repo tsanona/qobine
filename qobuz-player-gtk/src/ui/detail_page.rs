@@ -72,7 +72,10 @@ pub struct DetailScaffoldParts {
     pub tracks_list: gtk::ListBox,
 }
 
-pub fn build_detail_scaffold(header_section: &impl IsA<gtk::Widget>) -> DetailScaffoldParts {
+pub fn build_detail_scaffold(
+    header_section: &impl IsA<gtk::Widget>,
+    on_track_activated: impl Fn(usize) + 'static,
+) -> DetailScaffoldParts {
     let spinner = gtk::Spinner::new();
     spinner.start();
 
@@ -92,6 +95,14 @@ pub fn build_detail_scaffold(header_section: &impl IsA<gtk::Widget>) -> DetailSc
         .margin_end(18)
         .margin_bottom(18)
         .build();
+
+    tracks_list.connect_row_activated(move |_, row| {
+        let index = row.index();
+
+        if index >= 0 {
+            on_track_activated(index as usize);
+        }
+    });
 
     let content = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
