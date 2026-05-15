@@ -253,7 +253,8 @@ fn build_queue_row(
         let remove_btn = gtk::Button::builder()
             .icon_name("user-trash-symbolic")
             .tooltip_text("Remove from queue")
-            .css_classes(vec![String::from("flat")])
+            .valign(gtk::Align::Center)
+            .css_classes(vec!["flat"])
             .focusable(false)
             .build();
 
@@ -363,21 +364,19 @@ fn install_row_behaviors(
     let drag_source = gtk::DragSource::new();
     drag_source.set_actions(gdk::DragAction::MOVE);
 
-    {
-        let row_weak = row.downgrade();
+    let row_weak = row.downgrade();
 
-        drag_source.connect_prepare(move |_source, _x, _y| {
-            let row = row_weak.upgrade()?;
-            let from_index = row.index();
+    drag_source.connect_prepare(move |_source, _x, _y| {
+        let row = row_weak.upgrade()?;
+        let from_index = row.index();
 
-            if from_index < 0 {
-                return None;
-            }
+        if from_index < 0 {
+            return None;
+        }
 
-            let value = from_index.to_value();
-            Some(gdk::ContentProvider::for_value(&value))
-        });
-    }
+        let value = from_index.to_value();
+        Some(gdk::ContentProvider::for_value(&value))
+    });
 
     row.add_controller(drag_source);
 
@@ -393,7 +392,7 @@ fn install_row_behaviors(
         let client = client.clone();
         let favorite_tracks = favorite_tracks.clone();
 
-        move |_target, value, _x, y| {
+        move |_target, value, _x, _y| {
             let Some(listbox) = listbox_weak.upgrade() else {
                 return false;
             };
@@ -408,30 +407,12 @@ fn install_row_behaviors(
 
             let mut to_index = row.index();
 
-            if to_index < 0 {
-                return false;
-            }
-
-            let h = row.height() as f64;
-
-            if y > h / 2.0 {
-                to_index += 1;
-            }
-
             let new_queue_items = {
                 let mut vec = queue_items_clone.borrow_mut();
                 let len = vec.len() as i32;
 
                 if from_index < 0 || from_index >= len {
                     return false;
-                }
-
-                if to_index < 0 {
-                    to_index = 0;
-                }
-
-                if to_index > len {
-                    to_index = len;
                 }
 
                 if from_index == to_index || from_index + 1 == to_index {

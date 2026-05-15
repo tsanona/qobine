@@ -1,11 +1,11 @@
 use std::{cell::RefCell, collections::HashSet, rc::Rc, sync::Arc};
 
 use adw::prelude::*;
-use gtk4::prelude::*;
+use gtk4::{gdk, prelude::*};
 use libadwaita as adw;
 
 use qobuz_player_controls::{
-    TracklistReceiver, client::Client, controls::Controls, tracklist::PlayingEntity,
+    TracklistReceiver, client::Client, controls::Controls, models::Track, tracklist::PlayingEntity,
 };
 
 use crate::{
@@ -40,6 +40,7 @@ pub struct PlaylistDetailPage {
     tracks_list: gtk4::ListBox,
 
     current_selected_index: Rc<RefCell<Option<usize>>>,
+    tracks: Rc<RefCell<Vec<Track>>>,
 
     loaded: RefCell<bool>,
     ui_event_sender: UiEventSender,
@@ -198,6 +199,7 @@ impl PlaylistDetailPage {
             current_selected_index: Rc::new(RefCell::new(None)),
             ui_event_sender,
             delete_button,
+            tracks: Default::default(),
         };
 
         s.load_playlist();
@@ -224,6 +226,8 @@ impl PlaylistDetailPage {
         let tracklist_receiver = self.tracklist_receiver.clone();
         let current_playing_index = self.current_selected_index.clone();
 
+        let stored_tracks = self.tracks.clone();
+
         let delete_button = self.delete_button.clone();
 
         stack.set_visible_child_name("loading");
@@ -248,9 +252,9 @@ impl PlaylistDetailPage {
                         .map(|x| x.tracks.into_iter().map(|x| x.id).collect())
                         .unwrap_or(HashSet::new());
 
-                    for track in playlist.tracks {
+                    for track in playlist.tracks.iter() {
                         let row = build_track_row(
-                            &track,
+                            track,
                             true,
                             true,
                             false,
@@ -259,6 +263,18 @@ impl PlaylistDetailPage {
                             ui_event_sender.clone(),
                             &favorite_tracks,
                         );
+
+                        if playlist.is_owned {
+                            add_owned_playlist_track_controls(
+                                playlist_id,
+                                &row,
+                                &tracks_list,
+                                client.clone(),
+                                stored_tracks.clone(),
+                                current_playing_index.clone(),
+                            );
+                        }
+
                         tracks_list.append(&row);
                     }
 
@@ -272,6 +288,8 @@ impl PlaylistDetailPage {
                         );
                     }
                     stack.set_visible_child_name("content");
+                    let mut tracks = stored_tracks.borrow_mut();
+                    *tracks = playlist.tracks;
                 }
                 Err(err) => {
                     tracing::error!("Failed to load playlist {playlist_id}: {err}");
@@ -348,4 +366,210 @@ fn clear_listbox(list: &gtk4::ListBox) {
     while let Some(child) = list.first_child() {
         list.remove(&child);
     }
+}
+
+fn add_owned_playlist_track_controls(
+    playlist_id: u32,
+    row: &impl IsA<gtk4::ListBoxRow>,
+    tracks_list: &gtk4::ListBox,
+    client: Arc<Client>,
+    stored_tracks: Rc<RefCell<Vec<Track>>>,
+    current_selected_index: Rc<RefCell<Option<usize>>>,
+) {
+    let listbox_row = row.upcast_ref::<gtk4::ListBoxRow>();
+
+    let remove_button = gtk4::Button::builder()
+        .icon_name("user-trash-symbolic")
+        .tooltip_text("Remove from playlist")
+        .valign(gtk4::Align::Center)
+        .css_classes(vec!["flat"])
+        .build();
+
+    remove_button.connect_clicked({
+        let row = listbox_row.clone();
+        let tracks_list = tracks_list.clone();
+        let client = client.clone();
+        let stored_tracks = stored_tracks.clone();
+
+        move |_| {
+            let Some(track_playlist_id) = stored_tracks
+                .borrow()
+                .get(row.index() as usize)
+                .and_then(|track| track.playlist_track_id)
+            else {
+                return;
+            };
+
+            let row = row.clone();
+            let tracks_list = tracks_list.clone();
+            let client = client.clone();
+            let stored_tracks = stored_tracks.clone();
+            let current_selected_index = current_selected_index.clone();
+
+            glib::MainContext::default().spawn_local(async move {
+                if let Err(error) = client
+                    .playlist_delete_track(playlist_id, &[track_playlist_id])
+                    .await
+                {
+                    tracing::error!("{error}");
+                    return;
+                }
+
+                let removed_index = row.index();
+
+                if removed_index < 0 {
+                    return;
+                }
+
+                let removed_index = removed_index as usize;
+
+                let mut tracks = stored_tracks.borrow_mut();
+
+                if removed_index < tracks.len() {
+                    tracks.remove(removed_index);
+                }
+
+                tracks_list.remove(&row);
+
+                let mut current_selected = current_selected_index.borrow_mut();
+
+                match *current_selected {
+                    Some(current_index) if current_index == removed_index => {
+                        // Deleted the playing track, so nothing in this playlist should look playing.
+                        *current_selected = None;
+                        glib::idle_add_local_once(move || {
+                            tracks_list.unselect_all();
+                        });
+                    }
+                    Some(current_index) if current_index > removed_index => {
+                        // A row before the playing track was removed, so its index shifts down.
+                        let new_index = current_index - 1;
+                        *current_selected = Some(new_index);
+
+                        if let Some(row) = tracks_list.row_at_index(new_index as i32) {
+                            glib::idle_add_local_once(move || {
+                                tracks_list.select_row(Some(&row));
+                            });
+                        } else {
+                            glib::idle_add_local_once(move || {
+                                tracks_list.unselect_all();
+                            });
+                        }
+                    }
+                    Some(current_index) => {
+                        // Playing track still exists at same index.
+                        if let Some(row) = tracks_list.row_at_index(current_index as i32) {
+                            glib::idle_add_local_once(move || {
+                                tracks_list.select_row(Some(&row));
+                            });
+                        } else {
+                            glib::idle_add_local_once(move || {
+                                tracks_list.unselect_all();
+                            });
+                        }
+                    }
+                    None => {
+                        // Nothing is playing, so make sure nothing appears selected.
+                        glib::idle_add_local_once(move || {
+                            tracks_list.unselect_all();
+                        });
+                    }
+                }
+            });
+        }
+    });
+
+    if let Some(child) = listbox_row.child()
+        && let Ok(hbox) = child.downcast::<gtk4::Box>()
+    {
+        hbox.append(&remove_button);
+    }
+
+    let drag_source = gtk4::DragSource::builder()
+        .actions(gdk::DragAction::MOVE)
+        .build();
+
+    drag_source.connect_prepare({
+        let row = listbox_row.clone();
+
+        move |_, _, _| {
+            let from_index = row.index();
+            Some(gdk::ContentProvider::for_value(
+                &(from_index as u32).to_value(),
+            ))
+        }
+    });
+
+    listbox_row.add_controller(drag_source);
+
+    let drop_target = gtk4::DropTarget::new(u32::static_type(), gdk::DragAction::MOVE);
+
+    drop_target.connect_drop({
+        let target_row = listbox_row.clone();
+        let tracks_list = tracks_list.clone();
+        let client = client.clone();
+        let stored_tracks = stored_tracks.clone();
+
+        move |_, value, _, _| {
+            let Ok(from_index) = value.get::<u32>() else {
+                return false;
+            };
+
+            let from_index = from_index as usize;
+            let to_index = target_row.index();
+
+            if to_index < 0 {
+                return false;
+            }
+
+            let to_index = to_index as usize;
+
+            if from_index == to_index {
+                return true;
+            }
+
+            let Some(track_playlist_id) = stored_tracks
+                .borrow()
+                .get(from_index)
+                .and_then(|track| track.playlist_track_id)
+            else {
+                return false;
+            };
+
+            let Some(dragged_row) = tracks_list.row_at_index(from_index as i32) else {
+                return false;
+            };
+
+            let client = client.clone();
+            let tracks_list = tracks_list.clone();
+            let stored_tracks = stored_tracks.clone();
+
+            glib::MainContext::default().spawn_local(async move {
+                println!("{to_index}");
+                if let Err(error) = client
+                    .update_playlist_track_position(to_index, playlist_id, track_playlist_id)
+                    .await
+                {
+                    tracing::error!("{error}");
+                    return;
+                }
+
+                let mut tracks = stored_tracks.borrow_mut();
+
+                if from_index >= tracks.len() || to_index >= tracks.len() {
+                    return;
+                }
+
+                let track = tracks.remove(from_index);
+                tracks.insert(to_index, track);
+
+                tracks_list.remove(&dragged_row);
+                tracks_list.insert(&dragged_row, to_index as i32);
+            });
+
+            true
+        }
+    });
+
+    listbox_row.add_controller(drop_target);
 }
