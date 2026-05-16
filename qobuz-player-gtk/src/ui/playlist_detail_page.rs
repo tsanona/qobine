@@ -1,7 +1,7 @@
-use std::{cell::RefCell, collections::HashSet, rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use adw::prelude::*;
-use gtk4::{gdk, prelude::*};
+use gtk4::{gdk, gio, prelude::*};
 use libadwaita as adw;
 
 use qobuz_player_controls::{
@@ -12,7 +12,9 @@ use crate::{
     UiEvent, UiEventSender,
     ui::{
         DetailPage, DetailPageType, build_track_row,
-        detail_page::{DetailType, build_detail_header, build_detail_scaffold},
+        detail_page::{
+            DetailType, build_detail_header, build_detail_scaffold, populate_playlist_menu,
+        },
         format_time, set_image_from_url,
     },
 };
@@ -35,7 +37,9 @@ pub struct PlaylistDetailPage {
     cover: gtk4::Image,
     title: gtk4::Label,
     meta: gtk4::Label,
+    playlist_menu: gio::Menu,
     delete_button: gtk4::Button,
+    favorite_button: gtk4::Button,
 
     tracks_list: gtk4::ListBox,
 
@@ -171,9 +175,11 @@ impl PlaylistDetailPage {
             }
         });
 
-        let cover = header.cover.clone();
-        let stack = scaffold.stack.clone();
-        let tracks_list = scaffold.tracks_list.clone();
+        let cover = header.cover;
+        let stack = scaffold.stack;
+        let tracks_list = scaffold.tracks_list;
+        let menu = header.playlist_menu;
+        let favorite_button = header.favorite_button;
 
         let toolbar = adw::ToolbarView::new();
         toolbar.add_top_bar(&nav_bar);
@@ -194,12 +200,14 @@ impl PlaylistDetailPage {
             cover,
             title,
             meta,
+            playlist_menu: menu,
             tracks_list,
             loaded: RefCell::new(false),
             current_selected_index: Rc::new(RefCell::new(None)),
             ui_event_sender,
             delete_button,
             tracks: Default::default(),
+            favorite_button,
         };
 
         s.load_playlist();
@@ -229,8 +237,10 @@ impl PlaylistDetailPage {
         let stored_tracks = self.tracks.clone();
 
         let delete_button = self.delete_button.clone();
+        let favorite_button = self.favorite_button.clone();
 
         stack.set_visible_child_name("loading");
+        populate_playlist_menu(self.playlist_menu.clone(), client.clone());
 
         glib::MainContext::default().spawn_local(async move {
             match client.playlist(playlist_id).await {
@@ -243,14 +253,18 @@ impl PlaylistDetailPage {
                     set_image_from_url(playlist.image.as_deref(), &cover);
 
                     delete_button.set_visible(playlist.is_owned);
+                    favorite_button.set_visible(!playlist.is_owned);
 
                     clear_listbox(&tracks_list);
 
-                    let favorite_tracks = client
-                        .favorites()
-                        .await
-                        .map(|x| x.tracks.into_iter().map(|x| x.id).collect())
-                        .unwrap_or(HashSet::new());
+                    let favorites = client.favorites().await.unwrap_or_default();
+                    let favorite_tracks = favorites.tracks.into_iter().map(|x| x.id).collect();
+                    let owned_playlists = favorites
+                        .playlists
+                        .into_iter()
+                        .filter(|x| x.is_owned)
+                        .map(|x| x.into())
+                        .collect();
 
                     for track in playlist.tracks.iter() {
                         let row = build_track_row(
@@ -262,6 +276,7 @@ impl PlaylistDetailPage {
                             client.clone(),
                             ui_event_sender.clone(),
                             &favorite_tracks,
+                            &owned_playlists,
                         );
 
                         if playlist.is_owned {

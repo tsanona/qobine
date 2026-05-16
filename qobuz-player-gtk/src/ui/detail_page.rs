@@ -12,6 +12,8 @@ use crate::{UiEvent, UiEventSender};
 pub struct DetailHeaderParts {
     pub header_section: gtk::Box,
     pub cover: gtk::Image,
+    pub playlist_menu: gio::Menu,
+    pub favorite_button: gtk::Button,
 }
 
 pub fn build_detail_header(
@@ -60,6 +62,9 @@ pub fn build_detail_header(
     let menu = gio::Menu::new();
     menu.append(Some("Add to queue"), Some("tracks.add-to-queue"));
     menu.append(Some("Play next"), Some("tracks.play-next"));
+
+    let playlist_section = gio::Menu::new();
+    menu.append_section(Some("Add to playlist"), &playlist_section);
 
     let action_group = gio::SimpleActionGroup::new();
 
@@ -121,6 +126,43 @@ pub fn build_detail_header(
 
     action_group.add_action(&play_next_action);
 
+    let add_to_playlist_action =
+        gio::SimpleAction::new("add-to-playlist", Some(&u32::static_variant_type()));
+
+    add_to_playlist_action.connect_activate({
+        let client = client.clone();
+        let detail_type = favorite_button_type.clone();
+
+        move |_, parameter| {
+            let Some(playlist_id) = parameter.and_then(|p| p.get::<u32>()) else {
+                eprintln!("Missing playlist id");
+                return;
+            };
+
+            glib::MainContext::default().spawn_local({
+                let client = client.clone();
+                let detail_type = detail_type.clone();
+
+                async move {
+                    match fetch_track_ids(&client, detail_type).await {
+                        Ok(track_ids) => {
+                            if let Err(err) =
+                                client.playlist_add_track(playlist_id, &track_ids).await
+                            {
+                                tracing::error!("Failed to add tracks to playlist: {err}");
+                            }
+                        }
+                        Err(err) => {
+                            tracing::error!("Failed to fetch tracks: {err}");
+                        }
+                    }
+                }
+            });
+        }
+    });
+
+    action_group.add_action(&add_to_playlist_action);
+
     let popover_menu = gtk::PopoverMenu::from_model(Some(&menu));
     let actions_button = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")
@@ -148,7 +190,43 @@ pub fn build_detail_header(
     DetailHeaderParts {
         header_section,
         cover,
+        playlist_menu: playlist_section,
+        favorite_button,
     }
+}
+
+pub fn populate_playlist_menu(playlist_menu: gio::Menu, client: Arc<Client>) {
+    glib::MainContext::default().spawn_local(async move {
+        match client.favorites().await {
+            Ok(favorites) => {
+                let playlists: Vec<_> = favorites
+                    .playlists
+                    .into_iter()
+                    .filter(|x| x.is_owned)
+                    .collect();
+
+                if playlists.is_empty() {
+                    playlist_menu.append(Some("No playlists"), None);
+                    return;
+                }
+
+                for playlist in playlists {
+                    let item = gio::MenuItem::new(Some(&playlist.title), None);
+
+                    item.set_action_and_target_value(
+                        Some("tracks.add-to-playlist"),
+                        Some(&playlist.id.to_variant()),
+                    );
+
+                    playlist_menu.append_item(&item);
+                }
+            }
+            Err(err) => {
+                eprintln!("Failed to fetch playlists: {err}");
+                playlist_menu.append(Some("Failed to load playlists"), None);
+            }
+        }
+    });
 }
 
 pub struct DetailScaffoldParts {

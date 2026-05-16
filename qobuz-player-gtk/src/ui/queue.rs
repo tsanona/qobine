@@ -10,7 +10,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use qobuz_player_controls::controls::Controls;
-use qobuz_player_controls::models::{Track, TrackStatus};
+use qobuz_player_controls::models::{PlaylistSimple, Track, TrackStatus};
 use qobuz_player_controls::tracklist::{QueueItem, Tracklist};
 
 use crate::UiEventSender;
@@ -23,6 +23,7 @@ pub struct QueuePage {
     client: Arc<Client>,
     ui_event_sender: UiEventSender,
     favorite_tracks: Rc<RefCell<HashSet<u32>>>,
+    owned_playlists: Rc<RefCell<Vec<PlaylistSimple>>>,
 
     listbox: gtk::ListBox,
     queue_items: Rc<RefCell<Vec<QueueItem>>>,
@@ -86,6 +87,7 @@ impl QueuePage {
             rows_by_queue_id,
             ui_event_sender,
             favorite_tracks: Default::default(),
+            owned_playlists: Default::default(),
         }
     }
 
@@ -113,12 +115,73 @@ impl QueuePage {
             self.ui_event_sender.clone(),
             new_queue_items,
             self.favorite_tracks.clone(),
+            self.owned_playlists.clone(),
         );
     }
 
     pub fn favorite_tracks_changed(&self, tracks: HashSet<u32>) {
         let mut favorite_tracks = self.favorite_tracks.borrow_mut();
         *favorite_tracks = tracks;
+    }
+
+    pub fn owned_playlists_changed(&self, playlists: Vec<PlaylistSimple>) {
+        {
+            let mut owned_playlists = self.owned_playlists.borrow_mut();
+            *owned_playlists = playlists;
+        }
+
+        sync_existing_queue_list(
+            &self.listbox,
+            self.queue_items.clone(),
+            self.rows_by_queue_id.clone(),
+            self.controls.clone(),
+            self.client.clone(),
+            self.ui_event_sender.clone(),
+            self.favorite_tracks.clone(),
+            self.owned_playlists.clone(),
+        );
+    }
+}
+
+fn refresh_rows(
+    listbox: &gtk::ListBox,
+    items: &[QueueItem],
+    rows_by_queue_id: Rc<RefCell<HashMap<u64, gtk::ListBoxRow>>>,
+) {
+    let mut playing_row: Option<gtk::ListBoxRow> = None;
+
+    for item in items {
+        let Some(row) = rows_by_queue_id.borrow().get(&item.queue_id).cloned() else {
+            continue;
+        };
+
+        apply_track_status_to_row(&row, &item.track);
+
+        if is_playing(&item.track) {
+            playing_row = Some(row);
+        }
+    }
+
+    for (wanted_index, item) in items.iter().enumerate() {
+        let Some(row) = rows_by_queue_id.borrow().get(&item.queue_id).cloned() else {
+            continue;
+        };
+
+        if row.parent().is_none() {
+            listbox.insert(&row, wanted_index as i32);
+            continue;
+        }
+
+        if row.index() != wanted_index as i32 {
+            listbox.remove(&row);
+            listbox.insert(&row, wanted_index as i32);
+        }
+    }
+
+    if let Some(row) = playing_row {
+        listbox.select_row(Some(&row));
+    } else {
+        listbox.unselect_all();
     }
 }
 
@@ -132,6 +195,7 @@ fn sync_queue_list(
     ui_event_sender: UiEventSender,
     new_queue_items: Vec<QueueItem>,
     favorite_tracks: Rc<RefCell<HashSet<u32>>>,
+    owned_playlists: Rc<RefCell<Vec<PlaylistSimple>>>,
 ) {
     let old_track_by_queue_id: HashMap<u64, u32> = queue_items
         .borrow()
@@ -151,8 +215,6 @@ fn sync_queue_list(
         }
     }
 
-    let mut playing_row: Option<gtk::ListBoxRow> = None;
-
     for item in &new_queue_items {
         let must_rebuild = old_track_by_queue_id
             .get(&item.queue_id)
@@ -162,15 +224,14 @@ fn sync_queue_list(
             listbox.remove(&row);
         }
 
-        let row = if let Some(row) = rows_by_queue_id.borrow().get(&item.queue_id) {
-            row.clone()
-        } else {
+        if rows_by_queue_id.borrow().get(&item.queue_id).is_none() {
             let row = build_queue_row(
                 item,
                 controls.clone(),
                 client.clone(),
                 ui_event_sender.clone(),
                 favorite_tracks.clone(),
+                owned_playlists.clone(),
             );
 
             row.set_activatable(true);
@@ -186,47 +247,65 @@ fn sync_queue_list(
                 client.clone(),
                 ui_event_sender.clone(),
                 favorite_tracks.clone(),
+                owned_playlists.clone(),
             );
 
-            rows_by_queue_id
-                .borrow_mut()
-                .insert(item.queue_id, row.clone());
-
-            row
-        };
-
-        apply_track_status_to_row(&row, &item.track);
-
-        if is_playing(&item.track) {
-            playing_row = Some(row);
+            rows_by_queue_id.borrow_mut().insert(item.queue_id, row);
         }
     }
 
-    for (wanted_index, item) in new_queue_items.iter().enumerate() {
-        let Some(row) = rows_by_queue_id.borrow().get(&item.queue_id).cloned() else {
-            continue;
-        };
-
-        if row.parent().is_none() {
-            listbox.insert(&row, wanted_index as i32);
-            continue;
-        }
-
-        let current_index = row.index();
-
-        if current_index != wanted_index as i32 {
-            listbox.remove(&row);
-            listbox.insert(&row, wanted_index as i32);
-        }
-    }
+    refresh_rows(listbox, &new_queue_items, rows_by_queue_id.clone());
 
     *queue_items.borrow_mut() = new_queue_items;
+}
 
-    if let Some(row) = playing_row {
-        listbox.select_row(Some(&row));
-    } else {
-        listbox.unselect_all();
+#[allow(clippy::too_many_arguments)]
+fn sync_existing_queue_list(
+    listbox: &gtk::ListBox,
+    queue_items: Rc<RefCell<Vec<QueueItem>>>,
+    rows_by_queue_id: Rc<RefCell<HashMap<u64, gtk::ListBoxRow>>>,
+    controls: Controls,
+    client: Arc<Client>,
+    ui_event_sender: UiEventSender,
+    favorite_tracks: Rc<RefCell<HashSet<u32>>>,
+    owned_playlists: Rc<RefCell<Vec<PlaylistSimple>>>,
+) {
+    for (_, row) in rows_by_queue_id.borrow_mut().drain() {
+        listbox.remove(&row);
     }
+
+    let items = queue_items.borrow().clone();
+
+    for item in &items {
+        let row = build_queue_row(
+            item,
+            controls.clone(),
+            client.clone(),
+            ui_event_sender.clone(),
+            favorite_tracks.clone(),
+            owned_playlists.clone(),
+        );
+
+        row.set_activatable(true);
+        row.set_selectable(true);
+        row.set_widget_name(&format!("queue-row-{}", item.queue_id));
+
+        install_row_behaviors(
+            listbox,
+            &row,
+            queue_items.clone(),
+            rows_by_queue_id.clone(),
+            controls.clone(),
+            client.clone(),
+            ui_event_sender.clone(),
+            favorite_tracks.clone(),
+            owned_playlists.clone(),
+        );
+
+        rows_by_queue_id.borrow_mut().insert(item.queue_id, row);
+    }
+
+    refresh_rows(listbox, &items, rows_by_queue_id);
 }
 
 fn build_queue_row(
@@ -235,6 +314,7 @@ fn build_queue_row(
     client: Arc<Client>,
     ui_event_sender: UiEventSender,
     favorite_tracks: Rc<RefCell<HashSet<u32>>>,
+    owned_playlists: Rc<RefCell<Vec<PlaylistSimple>>>,
 ) -> gtk::ListBoxRow {
     let row = build_track_row(
         &item.track,
@@ -245,6 +325,7 @@ fn build_queue_row(
         client,
         ui_event_sender,
         &favorite_tracks.borrow(),
+        &owned_playlists.borrow(),
     );
 
     if let Some(child) = row.child()
@@ -294,6 +375,7 @@ fn install_row_behaviors(
     client: Arc<Client>,
     ui_event_sender: UiEventSender,
     favorite_tracks: Rc<RefCell<HashSet<u32>>>,
+    owned_playlists: Rc<RefCell<Vec<PlaylistSimple>>>,
 ) {
     if let Some(child) = row.child()
         && let Ok(hbox) = child.downcast::<gtk::Box>()
@@ -305,6 +387,7 @@ fn install_row_behaviors(
         let queue_items_clone = queue_items.clone();
         let rows_by_queue_id_clone = rows_by_queue_id.clone();
         let favorite_tracks = favorite_tracks.clone();
+        let owned_playlists = owned_playlists.clone();
 
         remove_btn.connect_clicked({
             let controls = controls.clone();
@@ -329,18 +412,11 @@ fn install_row_behaviors(
                 let idx = idx as usize;
 
                 let new_queue_items = {
-                    let mut vec = queue_items_clone.borrow_mut();
+                    let vec = queue_items_clone.borrow_mut();
 
                     if idx >= vec.len() {
                         return;
                     }
-
-                    let removed = vec.remove(idx);
-
-                    println!(
-                        "[queue] remove: index={} queue_id={} track_id={} title={}",
-                        idx, removed.queue_id, removed.track.id, removed.track.title
-                    );
 
                     controls.remove_index_from_queue(idx);
 
@@ -356,6 +432,7 @@ fn install_row_behaviors(
                     ui_event_sender.clone(),
                     new_queue_items,
                     favorite_tracks.clone(),
+                    owned_playlists.clone(),
                 );
             }
         });
@@ -449,6 +526,7 @@ fn install_row_behaviors(
                 ui_event_sender.clone(),
                 new_queue_items,
                 favorite_tracks.clone(),
+                owned_playlists.clone(),
             );
 
             true

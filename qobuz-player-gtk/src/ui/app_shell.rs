@@ -12,6 +12,7 @@ use qobuz_player_controls::VolumeReceiver;
 use qobuz_player_controls::client::Client;
 use qobuz_player_controls::controls::Controls;
 use qobuz_player_controls::database::Database;
+use qobuz_player_controls::models::PlaylistSimple;
 use qobuz_player_controls::tracklist::Tracklist;
 use tokio::sync::mpsc;
 
@@ -34,6 +35,7 @@ const SIDEBAR_ARTISTS: u32 = 2;
 const SIDEBAR_PLAYLISTS: u32 = 3;
 const SIDEBAR_TRACKS: u32 = 4;
 
+#[derive(Clone)]
 pub struct AppShell {
     root: adw::NavigationSplitView,
     client: Arc<Client>,
@@ -483,6 +485,10 @@ impl AppShell {
     pub fn tracklist_updated(&self, tracklist: &Tracklist) {
         self.queue_page.load(tracklist);
     }
+
+    pub fn owned_playlists_changed(&self, owned_playlists: Vec<PlaylistSimple>) {
+        self.queue_page.owned_playlists_changed(owned_playlists);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -518,15 +524,23 @@ fn reload_favorites(
                 albums_page.borrow_mut().load(favorites.albums);
                 artists_page.borrow_mut().load(favorites.artists);
 
-                playlists_page
-                    .borrow_mut()
-                    .load(favorites.playlists.into_iter().map(|x| x.into()).collect());
+                let favorite_playlists: Vec<PlaylistSimple> =
+                    favorites.playlists.into_iter().map(|x| x.into()).collect();
 
                 let favorite_tracks: HashSet<_> = favorites.tracks.iter().map(|x| x.id).collect();
 
-                favorite_tracks_page.load(favorites.tracks);
+                let owned_playlists: Vec<_> = favorite_playlists
+                    .iter()
+                    .filter(|x| x.is_owned)
+                    .cloned()
+                    .collect();
+
+                favorite_tracks_page.load(favorites.tracks, &owned_playlists);
+
+                playlists_page.borrow_mut().load(favorite_playlists);
 
                 queue_page.favorite_tracks_changed(favorite_tracks);
+                queue_page.owned_playlists_changed(owned_playlists);
             }
             Err(err) => {
                 spinner.set_visible(false);

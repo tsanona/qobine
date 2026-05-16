@@ -1,12 +1,7 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    rc::Rc,
-    sync::Arc,
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use glib::WeakRef;
-use gtk4::prelude::*;
+use gtk4::{gio, prelude::*};
 use libadwaita as adw;
 
 use qobuz_player_controls::{
@@ -19,7 +14,9 @@ use crate::{
         DetailPage, DetailPageType,
         album_detail_page::AlbumHeaderInfo,
         album_scroller, artist_scroller, build_track_row,
-        detail_page::{DetailType, build_detail_header, build_detail_scaffold},
+        detail_page::{
+            DetailType, build_detail_header, build_detail_scaffold, populate_playlist_menu,
+        },
         section, set_image_from_url,
     },
 };
@@ -44,6 +41,7 @@ pub struct ArtistDetailPage {
 
     cover: gtk4::Image,
     name: gtk4::Label,
+    playlist_menu: gio::Menu,
 
     content: gtk4::Box,
     tracks_list: gtk4::ListBox,
@@ -107,6 +105,7 @@ impl ArtistDetailPage {
         let stack = scaffold.stack;
         let content = scaffold.content;
         let tracks_list = scaffold.tracks_list;
+        let menu = header.playlist_menu;
 
         let toolbar = adw::ToolbarView::new();
         toolbar.add_top_bar(&nav_bar);
@@ -129,6 +128,7 @@ impl ArtistDetailPage {
             content,
             cover,
             name,
+            playlist_menu: menu,
             tracks_list,
             loaded: RefCell::new(false),
             track_rows: Rc::new(RefCell::new(HashMap::new())),
@@ -167,6 +167,7 @@ impl ArtistDetailPage {
         let content = self.content.clone();
 
         stack.set_visible_child_name("loading");
+        populate_playlist_menu(self.playlist_menu.clone(), client.clone());
 
         glib::MainContext::default().spawn_local(async move {
             match client.artist_page(artist_id).await {
@@ -176,11 +177,14 @@ impl ArtistDetailPage {
 
                     clear_listbox(&tracks_list);
 
-                    let favorite_tracks = client
-                        .favorites()
-                        .await
-                        .map(|x| x.tracks.into_iter().map(|x| x.id).collect())
-                        .unwrap_or(HashSet::new());
+                    let favorites = client.favorites().await.unwrap_or_default();
+                    let favorite_tracks = favorites.tracks.into_iter().map(|x| x.id).collect();
+                    let owned_playlists = favorites
+                        .playlists
+                        .into_iter()
+                        .filter(|x| x.is_owned)
+                        .map(|x| x.into())
+                        .collect();
 
                     for track in artist.top_tracks.iter().take(10) {
                         let row = build_track_row(
@@ -192,6 +196,7 @@ impl ArtistDetailPage {
                             client.clone(),
                             ui_event_sender.clone(),
                             &favorite_tracks,
+                            &owned_playlists,
                         );
 
                         let weak = glib::WeakRef::new();

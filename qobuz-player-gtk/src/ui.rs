@@ -215,6 +215,7 @@ pub fn build_track_row(
     client: Arc<Client>,
     ui_event_sender: UiEventSender,
     favorite_tracks: &HashSet<u32>,
+    owned_playlists: &Vec<PlaylistSimple>,
 ) -> gtk::ListBoxRow {
     let track_row_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -316,7 +317,53 @@ pub fn build_track_row(
     menu.append(Some("Play next"), Some("track.play-next"));
     menu.append(Some(favorite_label), Some("track.toggle-favorite"));
 
+    let playlist_section = gio::Menu::new();
+
+    if owned_playlists.is_empty() {
+        playlist_section.append(Some("No playlists"), None);
+    } else {
+        for playlist in owned_playlists {
+            let item = gio::MenuItem::new(Some(&playlist.title), None);
+
+            item.set_action_and_target_value(
+                Some("track.add-to-playlist"),
+                Some(&playlist.id.to_variant()),
+            );
+
+            playlist_section.append_item(&item);
+        }
+    }
+
+    menu.append_section(Some("Add to playlist"), &playlist_section);
+
     let action_group = gio::SimpleActionGroup::new();
+
+    let add_to_playlist_action =
+        gio::SimpleAction::new("add-to-playlist", Some(&u32::static_variant_type()));
+
+    add_to_playlist_action.connect_activate({
+        let client = client.clone();
+        let track_id = track.id;
+
+        move |_, parameter| {
+            let Some(playlist_id) = parameter.and_then(|p| p.get::<u32>()) else {
+                eprintln!("Missing playlist id");
+                return;
+            };
+
+            glib::MainContext::default().spawn_local({
+                let client = client.clone();
+
+                async move {
+                    if let Err(err) = client.playlist_add_track(playlist_id, &[track_id]).await {
+                        tracing::error!("Failed to add track to playlist: {err}");
+                    }
+                }
+            });
+        }
+    });
+
+    action_group.add_action(&add_to_playlist_action);
 
     let add_to_queue_action = gio::SimpleAction::new("add-to-queue", None);
 

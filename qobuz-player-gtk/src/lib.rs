@@ -261,7 +261,25 @@ fn build_ui(
 
     let tracklist_value = tracklist_receiver.borrow().clone();
     now_playing.update(&tracklist_value);
-    shell.tracklist_updated(&tracklist_value);
+
+    glib::MainContext::default().spawn_local({
+        let client = client.clone();
+        let shell = shell.clone();
+
+        async move {
+            let owned_playlists = client
+                .favorites()
+                .await
+                .unwrap_or_default()
+                .playlists
+                .into_iter()
+                .filter(|x| x.is_owned)
+                .map(|x| x.into())
+                .collect();
+            shell.owned_playlists_changed(owned_playlists);
+            shell.tracklist_updated(&tracklist_value);
+        }
+    });
 
     setup_tracklist_listener(
         ui_sender,
@@ -344,7 +362,6 @@ fn setup_tracklist_listener(
                 UiEvent::FavoritesChanged => {
                     shell.reload();
                 }
-
                 UiEvent::Exit => {
                     if let Some(app) = window.application() {
                         app.quit();

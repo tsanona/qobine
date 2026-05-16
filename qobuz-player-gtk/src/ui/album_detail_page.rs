@@ -1,12 +1,7 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    rc::Rc,
-    sync::Arc,
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use glib::WeakRef;
-use gtk4::prelude::*;
+use gtk4::{gio, prelude::*};
 use libadwaita as adw;
 
 use qobuz_player_controls::{
@@ -19,7 +14,9 @@ use crate::{
         DetailPage, DetailPageType, album_scroller,
         artist_detail_page::ArtistHeaderInfo,
         build_track_row, clickable_tile,
-        detail_page::{DetailType, build_detail_header, build_detail_scaffold},
+        detail_page::{
+            DetailType, build_detail_header, build_detail_scaffold, populate_playlist_menu,
+        },
         format_time, section, set_image_from_url,
     },
 };
@@ -44,6 +41,7 @@ pub struct AlbumDetailPage {
     title: gtk4::Label,
     artist_box: gtk4::Box,
     meta: gtk4::Label,
+    playlist_menu: gio::Menu,
 
     content: gtk4::Box,
     tracks_list: gtk4::ListBox,
@@ -121,9 +119,10 @@ impl AlbumDetailPage {
             }
         });
 
-        let cover = header.cover.clone();
-        let stack = scaffold.stack.clone();
-        let tracks_list = scaffold.tracks_list.clone();
+        let cover = header.cover;
+        let stack = scaffold.stack;
+        let tracks_list = scaffold.tracks_list;
+        let menu = header.playlist_menu;
 
         let toolbar = adw::ToolbarView::new();
         toolbar.add_top_bar(&nav_bar);
@@ -153,6 +152,7 @@ impl AlbumDetailPage {
             on_open_artist,
             on_open_album,
             ui_event_sender,
+            playlist_menu: menu,
         };
 
         s.load_album();
@@ -186,6 +186,8 @@ impl AlbumDetailPage {
 
         stack.set_visible_child_name("loading");
 
+        populate_playlist_menu(self.playlist_menu.clone(), client.clone());
+
         glib::MainContext::default().spawn_local(async move {
             match tokio::try_join!(client.album(&album_id), client.suggested_albums(&album_id)) {
                 Ok((album, suggestions)) => {
@@ -216,11 +218,14 @@ impl AlbumDetailPage {
 
                     clear_listbox(&tracks_list);
 
-                    let favorite_tracks = client
-                        .favorites()
-                        .await
-                        .map(|x| x.tracks.into_iter().map(|x| x.id).collect())
-                        .unwrap_or(HashSet::new());
+                    let favorites = client.favorites().await.unwrap_or_default();
+                    let favorite_tracks = favorites.tracks.into_iter().map(|x| x.id).collect();
+                    let owned_playlists = favorites
+                        .playlists
+                        .into_iter()
+                        .filter(|x| x.is_owned)
+                        .map(|x| x.into())
+                        .collect();
 
                     for track in album.tracks {
                         let row = build_track_row(
@@ -232,6 +237,7 @@ impl AlbumDetailPage {
                             client.clone(),
                             ui_event_sender.clone(),
                             &favorite_tracks,
+                            &owned_playlists,
                         );
 
                         let weak = glib::WeakRef::new();

@@ -8,7 +8,7 @@ use libadwaita as adw;
 
 use qobuz_player_controls::client::Client;
 use qobuz_player_controls::controls::Controls;
-use qobuz_player_controls::models::Track;
+use qobuz_player_controls::models::{PlaylistSimple, Track};
 
 use crate::UiEventSender;
 use crate::ui::build_track_row;
@@ -162,7 +162,7 @@ impl FavoriteTracksPage {
         &self.root
     }
 
-    pub fn load(&self, tracks: Vec<Track>) {
+    pub fn load(&self, tracks: Vec<Track>, owned_playlists: &Vec<PlaylistSimple>) {
         self.clear();
 
         let is_empty = tracks.is_empty();
@@ -185,6 +185,7 @@ impl FavoriteTracksPage {
                 self.client.clone(),
                 self.ui_event_sender.clone(),
                 &favorite_track_ids,
+                owned_playlists,
             );
 
             self.listbox.append(&row);
