@@ -9,6 +9,7 @@ use qobuz_player_controls::{
     controls::Controls,
     database::{Credentials, Database},
     error::Error,
+    notification::{Notification, NotificationBroadcast},
     tracklist::Tracklist,
 };
 use tokio::sync::mpsc::{self, UnboundedSender};
@@ -80,6 +81,7 @@ pub fn init(
     database: Arc<Database>,
     exit_sender: ExitSender,
     audio_cache_ttl_sender: mpsc::UnboundedSender<u32>,
+    broadcast: Arc<NotificationBroadcast>,
 ) -> AppResult<()> {
     libadwaita::init().unwrap();
 
@@ -136,7 +138,8 @@ pub fn init(
                 exit_sender.clone(),
                 audio_cache_ttl_sender.clone(),
                 ui_sender.clone(),
-                ui_receiver
+                ui_receiver,
+                broadcast.clone()
             );
         }
     });
@@ -194,6 +197,7 @@ fn build_ui(
     audio_cache_ttl_sender: mpsc::UnboundedSender<u32>,
     ui_sender: mpsc::UnboundedSender<UiEvent>,
     ui_receiver: mpsc::UnboundedReceiver<UiEvent>,
+    broadcast: Arc<NotificationBroadcast>,
 ) {
     let window = adw::ApplicationWindow::builder()
         .application(app)
@@ -250,13 +254,18 @@ fn build_ui(
 
     let now_playing = NowPlayingBar::new(controls, on_open_album, on_open_artist, on_open_playlist);
 
+    let toast_overlay = adw::ToastOverlay::new();
+
     let vbox = gtk4::Box::builder()
         .orientation(gtk4::Orientation::Vertical)
         .build();
     vbox.append(&app_nav);
     vbox.append(&now_playing.revealer);
 
-    window.set_content(Some(&vbox));
+    toast_overlay.set_child(Some(&vbox));
+
+    window.set_content(Some(&toast_overlay));
+
     window.present();
 
     let tracklist_value = tracklist_receiver.borrow().clone();
@@ -269,9 +278,11 @@ fn build_ui(
         tracklist_receiver,
         status_receiver,
         position_receiver,
+        broadcast,
         now_playing,
         shell,
         detail_pages,
+        toast_overlay,
         callback_handles,
         exit_sender,
         window,
@@ -285,14 +296,18 @@ fn setup_tracklist_listener(
     mut tracklist_receiver: TracklistReceiver,
     mut status_receiver: StatusReceiver,
     mut position_receiver: PositionReceiver,
+    broadcast: Arc<NotificationBroadcast>,
     now_playing_bar: NowPlayingBar,
     shell: AppShell,
     detail_pages: Rc<RefCell<Vec<Rc<dyn DetailPage>>>>,
+    toast_overlay: adw::ToastOverlay,
     callback_handles: Rc<CallbackHandles>,
     exit_sender: ExitSender,
     window: ApplicationWindow,
 ) {
     let mut exit_receiver = exit_sender.subscribe();
+    let mut notification_receiver = broadcast.subscribe();
+
     tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -310,10 +325,23 @@ fn setup_tracklist_listener(
                     let position = *position_receiver.borrow_and_update();
                     sender.send(UiEvent::Position(position)).unwrap();
                 }
+
                 Ok(exit) = exit_receiver.recv() => {
                     if exit {
                         sender.send(UiEvent::Exit).unwrap();
                         break;
+                    }
+                }
+
+                notification = notification_receiver.recv() => {
+                    if let Ok(notification) = notification {
+                        let text = match notification {
+                            Notification::Error(text) => format!("Error: {text}"),
+                            Notification::Warning(text) => text,
+                            Notification::Success(text) => text,
+                            Notification::Info(text) => text,
+                        };
+                        sender.send(UiEvent::Toast(text)).unwrap();
                     }
                 }
             }
@@ -344,6 +372,12 @@ fn setup_tracklist_listener(
                 UiEvent::FavoritesChanged => {
                     shell.reload();
                 }
+
+                UiEvent::Toast(message) => {
+                    let toast = adw::Toast::builder().title(&message).timeout(3).build();
+                    toast_overlay.add_toast(toast);
+                }
+
                 UiEvent::Exit => {
                     if let Some(app) = window.application() {
                         app.quit();
@@ -364,4 +398,5 @@ enum UiEvent {
     Position(Duration),
     FavoritesChanged,
     Exit,
+    Toast(String),
 }

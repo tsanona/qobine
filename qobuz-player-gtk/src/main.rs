@@ -106,6 +106,7 @@ pub async fn run() -> AppResult<()> {
             database_clone,
             exit_sender,
             ttl_tx,
+            broadcast,
         ) {
             error_exit(e);
         };
