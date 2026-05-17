@@ -324,12 +324,12 @@ async fn edit_tracks_partial(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MovedIndexOutput {
-    pub moved_index: usize,
-    pub insert_before: usize,
+struct MovedIndexOutput {
+    moved_index: usize,
+    insert_before: usize,
 }
 
-pub fn moved_index(perm: &[usize]) -> Option<MovedIndexOutput> {
+fn moved_index(perm: &[usize]) -> Option<MovedIndexOutput> {
     if perm.iter().enumerate().all(|(i, &v)| i == v) {
         return None;
     }
@@ -356,7 +356,9 @@ pub fn moved_index(perm: &[usize]) -> Option<MovedIndexOutput> {
     }
     let m = moved.unwrap();
     let p = inv[m];
-    let insert_before = if p + 1 < n { perm[p + 1] + 1 } else { n + 1 };
+
+    let insert_before = if p + 1 < n { perm[p + 1] } else { n };
+
     Some(MovedIndexOutput {
         moved_index: m,
         insert_before,
@@ -381,7 +383,7 @@ mod test {
         let output = moved_index(perm).unwrap();
 
         assert_eq!(output.moved_index, 0);
-        assert_eq!(output.insert_before, 7);
+        assert_eq!(output.insert_before, 6);
     }
 
     #[test]
@@ -390,7 +392,7 @@ mod test {
         let output = moved_index(perm).unwrap();
 
         assert_eq!(output.moved_index, 2);
-        assert_eq!(output.insert_before, 1);
+        assert_eq!(output.insert_before, 0);
     }
 
     #[test]
@@ -399,6 +401,6 @@ mod test {
         let output = moved_index(perm).unwrap();
 
         assert_eq!(output.moved_index, 3);
-        assert_eq!(output.insert_before, 6);
+        assert_eq!(output.insert_before, 5);
     }
 }

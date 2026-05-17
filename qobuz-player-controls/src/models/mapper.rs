@@ -261,6 +261,7 @@ pub fn parse_playlist(
         tracks_count: playlist.tracks_count as u32,
         image,
         tracks,
+        owner: playlist.owner,
     }
 }
 
@@ -275,6 +276,7 @@ pub fn parse_playlist_simple(
         duration_seconds: playlist.duration as u32,
         tracks_count: playlist.tracks_count as u32,
         image: Some(playlist.image.rectangle),
+        owner: playlist.owner,
     }
 }
 

@@ -1,3 +1,5 @@
+use qobuz_player_client::qobuz_models::playlist::Owner;
+
 pub mod mapper;
 
 #[derive(Debug, Default, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -121,6 +123,7 @@ pub struct Playlist {
     pub id: u32,
     pub image: Option<String>,
     pub tracks: Vec<Track>,
+    pub owner: Owner,
 }
 
 impl From<Playlist> for PlaylistSimple {
@@ -132,6 +135,7 @@ impl From<Playlist> for PlaylistSimple {
             tracks_count: value.tracks_count,
             id: value.id,
             image: value.image,
+            owner: value.owner,
         }
     }
 }
@@ -145,6 +149,7 @@ impl From<PlaylistSimple> for Playlist {
             id: value.id,
             image: value.image,
             tracks: Default::default(),
+            owner: value.owner,
         }
     }
 }
@@ -157,6 +162,7 @@ pub struct PlaylistSimple {
     pub tracks_count: u32,
     pub id: u32,
     pub image: Option<String>,
+    pub owner: Owner,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
