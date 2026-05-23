@@ -1882,6 +1882,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f90f7dce0722e95104fcb095585910c0977252f286e354b5e3bd38902cd99988"
 
 [[package]]
+name = "futures-timer"
+version = "3.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af43fadb8a98512d547e37b4e92e0ced13e205c061b87b4623eff01d918d6968"
+
+[[package]]
 name = "futures-util"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3705,6 +3711,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
 
 [[package]]
+name = "paho-mqtt"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23c6e899549be260b8c8d7fb6908d72eacb9a1e10229c7e294a7a8ff1c768620"
+dependencies = [
+ "async-channel",
+ "crossbeam-channel",
+ "futures",
+ "futures-timer",
+ "libc",
+ "log",
+ "paho-mqtt-sys",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "paho-mqtt-sys"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00e508bdadfa0d58d67792060fa447ec20729db5dc76e3dc7de9f4d29e521a43"
+dependencies = [
+ "cmake",
+ "openssl-sys",
+]
+
+[[package]]
 name = "palette"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4236,6 +4268,19 @@ dependencies = [
  "mpris-server",
  "qobuz-player-controls",
  "tokio",
+]
+
+[[package]]
+name = "qobuz-player-mqtt"
+version = "1.0.0"
+dependencies = [
+ "clap",
+ "paho-mqtt",
+ "qobuz-player-controls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
