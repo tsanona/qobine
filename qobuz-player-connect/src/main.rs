@@ -1,5 +1,3 @@
-#[cfg(feature = "gpio")]
-use qobuz_player_cli::GpioArgs;
 use qobuz_player_cli::{
     ConnectNameArgs, DelayArgs, SharedArgs, SharedCommands, create_player, default_audio_cache,
     default_audio_quality, get_client, handle_shared_commands, spawn_clean_up,
@@ -8,9 +6,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use clap::Parser;
-use qobuz_player_controls::{
-    AppResult, database::Database, error::Error, notification::NotificationBroadcast,
-};
+use qobuz_player_controls::{AppResult, database::Database, notification::NotificationBroadcast};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
@@ -26,7 +22,11 @@ struct Arguments {
 
     #[cfg(feature = "gpio")]
     #[clap(flatten)]
-    gpio: GpioArgs,
+    gpio: qobuz_player_cli::GpioArgs,
+
+    #[cfg(feature = "mqtt")]
+    #[clap(flatten)]
+    mqtt_config: qobuz_player_mqtt::MqttConfig,
 
     #[clap(subcommand)]
     command: Option<SharedCommands>,
@@ -43,6 +43,8 @@ async fn main() {
 }
 
 pub async fn run() -> AppResult<()> {
+    tracing_subscriber::fmt::init();
+
     let args = Arguments::parse();
     let database = Arc::new(Database::new().await?);
     let headless = true;
@@ -83,7 +85,28 @@ pub async fn run() -> AppResult<()> {
         let status_receiver = player.status();
         tokio::spawn(async move {
             if let Err(e) = qobuz_player_gpio::init(status_receiver).await {
-                error_exit(e.into());
+                error_exit(e);
+            }
+        });
+    }
+
+    #[cfg(feature = "mqtt")]
+    {
+        let controls = player.controls();
+        let status_receiver = player.status();
+        let volume_reciever = player.volume();
+        let track_list_reciever = player.tracklist();
+        tokio::spawn(async move {
+            if let Err(e) = qobuz_player_mqtt::init(
+                controls,
+                status_receiver,
+                volume_reciever,
+                track_list_reciever,
+                args.mqtt_config,
+            )
+            .await
+            {
+                error_exit(e);
             }
         });
     }
@@ -121,7 +144,7 @@ pub async fn run() -> AppResult<()> {
     Ok(())
 }
 
-fn error_exit(error: Error) {
+fn error_exit(error: impl std::error::Error) {
     eprintln!("{error}");
     std::process::exit(1);
 }
