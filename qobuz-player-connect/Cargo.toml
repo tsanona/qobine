@@ -12,11 +12,13 @@ path = "src/main.rs"
 
 [features]
 gpio = ["qobuz-player-gpio/gpio"]
+mqtt = ["dep:qobuz-player-mqtt"]
 
 [dependencies]
 qobuz-player-controls = { version = "*", path = "../qobuz-player-controls" }
 qobuz-player-gpio = { version = "*", path = "../qobuz-player-gpio", optional = true }
 qobuz-player-cli = { version = "*", path = "../qobuz-player-cli" }
+qobuz-player-mqtt = { version = "*", path = "../qobuz-player-mqtt", optional = true, features = ["cli"]}
 
 qonductor.workspace = true
 tokio.workspace = true
@@ -24,3 +26,4 @@ tracing.workspace = true
 
 # binary dependencies
 clap.workspace = true
+tracing-subscriber.workspace = true

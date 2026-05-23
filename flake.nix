@@ -22,6 +22,9 @@
           libsoup_3
           webkitgtk_6_0
           libadwaita
+
+          # mqtt
+          cmake
         ];
       };
     };

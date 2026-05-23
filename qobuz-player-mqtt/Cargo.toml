@@ -5,10 +5,16 @@ edition.workspace = true
 license-file.workspace = true
 repository.workspace = true
 
+[features]
+cli = ["dep:clap"]
+
 [dependencies]
 qobuz-player-controls = { version = "*", path = "../qobuz-player-controls" }
+
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+clap = { workspace = true, optional = true }
+
 paho-mqtt = "0.14.0"
