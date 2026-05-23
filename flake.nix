@@ -12,7 +12,13 @@
       in with pkgs;
       {
         devShell = mkShell {
-          nativeBuildInputs = [ pkg-config sqlx-cli just ];
+          nativeBuildInputs = [ 
+            pkg-config 
+            sqlx-cli 
+            just
+            # --feature mqtt
+            cmake
+          ];
           buildInputs = [
             # qobuz-player + qobuz-player-connect + qobuz-player-rfid + qobuz-player-web (base libs)
             alsa-lib

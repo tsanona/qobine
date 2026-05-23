@@ -10,6 +10,7 @@ members = [
   "qobuz-player-connect",
   "qobuz-player-cli",
   "qobuz-player-gtk",
+  "qobuz-player-mqtt"
 ]
 resolver = "2"
 
