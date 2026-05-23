@@ -4203,9 +4203,11 @@ dependencies = [
  "qobuz-player-cli",
  "qobuz-player-controls",
  "qobuz-player-gpio",
+ "qobuz-player-mqtt",
  "qonductor",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
