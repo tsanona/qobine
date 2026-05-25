@@ -1,0 +1,29 @@
+[package]
+name = "qobuz-player-headless"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+repository.workspace = true
+description.workspace = true
+
+[features]
+gpio = ["dep:qobuz-player-gpio"]
+mqtt = ["dep:qobuz-player-mqtt"]
+connect = ["dep:qobuz-player-connect"]
+connect-opt = ["connect"]
+rfid = ["dep:qobuz-player-rfid"]
+rfid-opt = ["rfid"]
+web = ["dep:qobuz-player-web"]
+
+[dependencies]
+qobuz-player-cli = { version = "*", path = "../qobuz-player-cli" }
+qobuz-player-controls = { version = "*", path = "../qobuz-player-controls" }
+qobuz-player-gpio = { version = "*", path = "../qobuz-player-gpio", optional = true, features = ["gpio"] }
+qobuz-player-mqtt = { version = "*", path = "../qobuz-player-mqtt", optional = true, features = ["cli"] }
+qobuz-player-rfid = { version = "*", path = "../qobuz-player-rfid", optional = true }
+qobuz-player-connect = { version = "*", path = "../qobuz-player-connect", optional = true }
+qobuz-player-web = { version = "*", path = "../qobuz-player-web", optional = true }
+
+clap.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
