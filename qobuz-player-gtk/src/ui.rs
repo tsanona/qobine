@@ -73,7 +73,7 @@ pub fn build_album_tile(album: &AlbumSimple) -> adw::Bin {
     let artist = gtk::Label::builder()
         .label(&album.artist.name)
         .xalign(0.0)
-        .css_classes(vec![String::from("dim-label")])
+        .css_classes(vec!["dim-label"])
         .wrap(true)
         .max_width_chars(20)
         .build();

@@ -34,7 +34,7 @@ impl QueuePage {
     pub fn new(controls: Controls, client: Arc<Client>, ui_event_sender: UiEventSender) -> Self {
         let listbox = gtk::ListBox::builder()
             .selection_mode(gtk::SelectionMode::Single)
-            .css_classes(vec![String::from("boxed-list")])
+            .css_classes(vec!["boxed-list"])
             .show_separators(true)
             .activate_on_single_click(true)
             .vexpand(false)
