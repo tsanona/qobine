@@ -6,6 +6,21 @@ license-file.workspace = true
 repository.workspace = true
 description.workspace = true
 
+[[bin]]
+name = "qobuz-player-connect"
+required-features = ["connect"]
+path = "src/main.rs"
+
+[[bin]]
+name = "qobuz-player-rfid"
+required-features = ["rfid", "connect-opt"]
+path = "src/main.rs"
+
+[[bin]]
+name = "qobuz-player-web"
+required-features = ["web", "rfid-opt", "connect-opt"]
+path = "src/main.rs"
+
 [features]
 gpio = ["dep:qobuz-player-gpio"]
 mqtt = ["dep:qobuz-player-mqtt"]

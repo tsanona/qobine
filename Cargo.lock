@@ -4199,15 +4199,10 @@ dependencies = [
 name = "qobuz-player-connect"
 version = "1.0.0"
 dependencies = [
- "clap",
- "qobuz-player-cli",
  "qobuz-player-controls",
- "qobuz-player-gpio",
- "qobuz-player-mqtt",
  "qonductor",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -4305,17 +4300,11 @@ dependencies = [
 name = "qobuz-player-rfid"
 version = "1.0.0"
 dependencies = [
- "clap",
- "qobuz-player-cli",
- "qobuz-player-connect",
  "qobuz-player-controls",
- "qobuz-player-gpio",
- "qobuz-player-mqtt",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -4344,16 +4333,11 @@ version = "1.0.0"
 dependencies = [
  "axum",
  "axum-extra",
- "clap",
  "filesentry",
  "futures",
  "mime",
  "mime_guess",
- "qobuz-player-cli",
- "qobuz-player-connect",
  "qobuz-player-controls",
- "qobuz-player-gpio",
- "qobuz-player-mqtt",
  "qobuz-player-rfid",
  "rust-embed",
  "serde",
@@ -4363,7 +4347,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
