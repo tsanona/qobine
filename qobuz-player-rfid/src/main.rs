@@ -1,36 +1,39 @@
-#[cfg(feature = "gpio")]
-use qobuz_player_cli::GpioArgs;
 use qobuz_player_cli::{
-    ConnectArgs, DelayArgs, RfidArgs, SharedArgs, SharedCommands, create_player,
-    default_audio_cache, default_audio_quality, get_client, handle_shared_commands, spawn_clean_up,
+    DelayArgs, SharedArgs, SharedCommands, create_player, default_audio_cache,
+    default_audio_quality, get_client, handle_shared_commands, spawn_clean_up,
 };
-use qobuz_player_rfid::RfidState;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
 use clap::Parser;
-use qobuz_player_controls::{
-    AppResult, database::Database, error::Error, notification::NotificationBroadcast,
-};
+use qobuz_player_controls::{AppResult, database::Database, notification::NotificationBroadcast};
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Arguments {
     #[clap(flatten)]
-    rfid_config: RfidArgs,
+    shared: SharedArgs,
 
     #[clap(flatten)]
     delay: DelayArgs,
 
-    #[clap(flatten)]
-    shared: SharedArgs,
-
     #[cfg(feature = "gpio")]
     #[clap(flatten)]
-    gpio: GpioArgs,
+    gpio: qobuz_player_cli::GpioArgs,
+
+    #[cfg(feature = "mqtt")]
+    #[clap(flatten)]
+    mqtt_config: qobuz_player_mqtt::MqttArgs,
+
+    #[clap(long)]
+    /// Enable connect interface
+    connect: bool,
 
     #[clap(flatten)]
-    connect: ConnectArgs,
+    connect_config: qobuz_player_cli::ConnectArgs,
+
+    #[clap(flatten)]
+    rfid_config: qobuz_player_cli::RfidArgs,
 
     #[clap(subcommand)]
     command: Option<SharedCommands>,
@@ -87,17 +90,38 @@ pub async fn run() -> AppResult<()> {
         let status_receiver = player.status();
         tokio::spawn(async move {
             if let Err(e) = qobuz_player_gpio::init(status_receiver).await {
-                error_exit(e.into());
+                error_exit(e);
+            }
+        });
+    }
+
+    #[cfg(feature = "mqtt")]
+    {
+        let controls = player.controls();
+        let status_receiver = player.status();
+        let volume_reciever = player.volume();
+        let track_list_reciever = player.tracklist();
+        tokio::spawn(async move {
+            if let Err(e) = qobuz_player_mqtt::init(
+                controls,
+                status_receiver,
+                volume_reciever,
+                track_list_reciever,
+                args.mqtt_config,
+            )
+            .await
+            {
+                error_exit(e);
             }
         });
     }
 
     {
-        let rfid_state = RfidState::default();
+        let rfid_state = qobuz_player_rfid::RfidState::default();
+        let tracklist_receiver = player.tracklist();
         let controls = player.controls();
         let database = database.clone();
-        let tracklist_receiver = player.tracklist();
-
+        
         tokio::spawn(async move {
             if let Err(e) = qobuz_player_rfid::init(
                 rfid_state,
@@ -115,19 +139,19 @@ pub async fn run() -> AppResult<()> {
         });
     }
 
-    if args.connect.connect {
+    if args.connect {
         let app_id = client.app_id().await?;
+        let controls = player.controls();
         let position_receiver = player.position();
         let tracklist_receiver = player.tracklist();
-        let volume_receiver = player.volume();
         let status_receiver = player.status();
-        let controls = player.controls();
+        let volume_receiver = player.volume();
 
         tokio::spawn(async move {
             if let Err(e) = qobuz_player_connect::init(
                 &app_id,
-                args.connect.name_args.connect_name,
-                args.connect.name_args.connect_port,
+                args.connect_config.connect_name,
+                args.connect_config.connect_port,
                 controls,
                 position_receiver,
                 tracklist_receiver,
@@ -148,7 +172,7 @@ pub async fn run() -> AppResult<()> {
     Ok(())
 }
 
-fn error_exit(error: Error) {
+fn error_exit(error: impl std::error::Error) {
     eprintln!("{error}");
     std::process::exit(1);
 }

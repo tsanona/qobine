@@ -23,8 +23,12 @@ struct Arguments {
     #[clap(flatten)]
     shared: SharedArgs,
 
+    #[clap(long)]
+    /// Enable connect interface
+    connect: bool,
+
     #[clap(flatten)]
-    connect: ConnectArgs,
+    connect_config: ConnectArgs,
 
     #[clap(subcommand)]
     command: Option<SharedCommands>,
@@ -114,7 +118,7 @@ pub async fn run() -> AppResult<()> {
     let client = client.clone();
     let broadcast = broadcast.clone();
 
-    if args.connect.connect {
+    if args.connect {
         let app_id = client.app_id().await?;
         let position_receiver = player.position();
         let tracklist_receiver = player.tracklist();
@@ -125,8 +129,8 @@ pub async fn run() -> AppResult<()> {
         tokio::spawn(async move {
             if let Err(e) = qobuz_player_connect::init(
                 &app_id,
-                args.connect.name_args.connect_name,
-                args.connect.name_args.connect_port,
+                args.connect_config.connect_name,
+                args.connect_config.connect_port,
                 controls,
                 position_receiver,
                 tracklist_receiver,

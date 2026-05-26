@@ -1,5 +1,5 @@
 use qobuz_player_cli::{
-    ConnectNameArgs, DelayArgs, SharedArgs, SharedCommands, create_player, default_audio_cache,
+    DelayArgs, SharedArgs, SharedCommands, create_player, default_audio_cache,
     default_audio_quality, get_client, handle_shared_commands, spawn_clean_up,
 };
 use std::sync::Arc;
@@ -17,9 +17,6 @@ struct Arguments {
     #[clap(flatten)]
     delay: DelayArgs,
 
-    #[clap(flatten)]
-    connect: ConnectNameArgs,
-
     #[cfg(feature = "gpio")]
     #[clap(flatten)]
     gpio: qobuz_player_cli::GpioArgs,
@@ -27,6 +24,9 @@ struct Arguments {
     #[cfg(feature = "mqtt")]
     #[clap(flatten)]
     mqtt_config: qobuz_player_mqtt::MqttArgs,
+
+    #[clap(flatten)]
+    connect_config: qobuz_player_cli::ConnectArgs,
 
     #[clap(subcommand)]
     command: Option<SharedCommands>,
@@ -110,18 +110,18 @@ pub async fn run() -> AppResult<()> {
     }
 
     {
-        let app_id = client.app_id().await?;
+       let app_id = client.app_id().await?;
+        let controls = player.controls();
         let position_receiver = player.position();
         let tracklist_receiver = player.tracklist();
-        let volume_receiver = player.volume();
         let status_receiver = player.status();
-        let controls = player.controls();
+        let volume_receiver = player.volume();
 
         tokio::spawn(async move {
             if let Err(e) = qobuz_player_connect::init(
                 &app_id,
-                args.connect.connect_name,
-                args.connect.connect_port,
+                args.connect_config.connect_name,
+                args.connect_config.connect_port,
                 controls,
                 position_receiver,
                 tracklist_receiver,

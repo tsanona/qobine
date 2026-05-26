@@ -31,15 +31,6 @@ pub struct SharedArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct ConnectArgs {
-    #[clap(long)]
-    pub connect: bool,
-
-    #[clap(flatten)]
-    pub name_args: ConnectNameArgs,
-}
-
-#[derive(Args, Debug)]
 pub struct RfidArgs {
     #[clap(long)]
     /// Use other qobuz-player with web for rfid database
@@ -51,7 +42,7 @@ pub struct RfidArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct ConnectNameArgs {
+pub struct ConnectArgs {
     #[clap(long, default_value = "qobuz-player")]
     pub connect_name: String,
 

@@ -10,13 +10,15 @@ name = "qobuz-player-rfid"
 path = "src/main.rs"
 
 [features]
-gpio = ["qobuz-player-gpio/gpio"]
+gpio = ["dep:qobuz-player-gpio"]
+mqtt = ["dep:qobuz-player-mqtt"]
 
 [dependencies]
-qobuz-player-controls = { version = "*", path = "../qobuz-player-controls" }
-qobuz-player-connect = { version = "*", path = "../qobuz-player-connect" }
-qobuz-player-gpio = { version = "*", path = "../qobuz-player-gpio", optional = true }
 qobuz-player-cli = { version = "*", path = "../qobuz-player-cli" }
+qobuz-player-connect = { version = "*", path = "../qobuz-player-connect" }
+qobuz-player-controls = { version = "*", path = "../qobuz-player-controls" }
+qobuz-player-gpio = { version = "*", path = "../qobuz-player-gpio", optional = true, features = ["gpio"] }
+qobuz-player-mqtt = { version = "*", path = "../qobuz-player-mqtt", optional = true, features = ["cli"] }
 
 tokio.workspace = true
 tracing.workspace = true
