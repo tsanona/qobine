@@ -5,23 +5,34 @@ use qobuz_player_controls::{AppResult, controls::Controls};
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind},
     prelude::*,
+    widgets::ListState,
 };
 
+use crate::ui::sidebar;
 use crate::{
     app::{NotificationList, Output},
-    ui::{block, tab_bar},
+    ui::block,
     widgets::{album_list::AlbumList, playlist_list::PlaylistList},
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiscoverFocus {
+    #[default]
+    Sidebar,
+    Content,
+}
 
 pub struct DiscoverState {
     featured_albums: Vec<(String, AlbumList)>,
     featured_playlists: Vec<(String, PlaylistList)>,
     selected_sub_tab: usize,
+    focus: DiscoverFocus,
 }
 
 impl DiscoverState {
     pub async fn new(client: &Client) -> AppResult<Self> {
         let discover = client.discover_page(None).await?;
+
         let featured_albums = vec![
             (
                 "New releases".to_string(),
@@ -66,6 +77,7 @@ impl DiscoverState {
             featured_albums,
             featured_playlists,
             selected_sub_tab: 0,
+            focus: Default::default(),
         })
     }
 
@@ -74,11 +86,6 @@ impl DiscoverState {
         frame.render_widget(block, area);
 
         let tab_content_area = area.inner(Margin::new(1, 1));
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(2), Constraint::Min(1)])
-            .split(tab_content_area);
 
         let labels = self
             .featured_albums
@@ -91,8 +98,17 @@ impl DiscoverState {
             )
             .collect::<Vec<_>>();
 
-        let tabs = tab_bar(labels, self.selected_sub_tab);
-        frame.render_widget(tabs, chunks[0]);
+        let (sidebar, sidebar_width) = sidebar(labels, self.focus == DiscoverFocus::Sidebar);
+
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(sidebar_width), Constraint::Min(1)])
+            .split(tab_content_area);
+
+        let mut sidebar_state = ListState::default();
+        sidebar_state.select(Some(self.selected_sub_tab));
+
+        frame.render_stateful_widget(sidebar, chunks[0], &mut sidebar_state);
 
         if let Some((_, list)) = self.selected_album_mut() {
             list.render(chunks[1], frame.buffer_mut());
@@ -109,35 +125,57 @@ impl DiscoverState {
         notifications: &mut NotificationList,
     ) -> AppResult<Output> {
         match event {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                match key_event.code {
-                    KeyCode::Left | KeyCode::Char('h') => {
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => match self.focus {
+                DiscoverFocus::Sidebar => match key_event.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
                         self.cycle_subtab_backwards();
                         Ok(Output::Consumed)
                     }
-                    KeyCode::Right | KeyCode::Char('l') => {
+                    KeyCode::Down | KeyCode::Char('j') => {
                         self.cycle_subtab();
                         Ok(Output::Consumed)
                     }
-                    _ => {
-                        if let Some((_, list)) = self.selected_album_mut() {
-                            return list
-                                .handle_events(key_event.code, client, controls, notifications)
-                                .await;
-                        }
-
-                        if let Some((_, list)) = self.selected_playlist_mut() {
-                            return list
-                                .handle_events(key_event.code, client, controls, notifications)
-                                .await;
-                        }
-
-                        Ok(Output::NotConsumed)
+                    KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
+                        self.focus = DiscoverFocus::Content;
+                        Ok(Output::Consumed)
                     }
-                }
-            }
+                    _ => Ok(Output::NotConsumed),
+                },
+                DiscoverFocus::Content => match key_event.code {
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        self.focus = DiscoverFocus::Sidebar;
+                        Ok(Output::Consumed)
+                    }
+                    _ => {
+                        self.handle_content_events(key_event.code, client, controls, notifications)
+                            .await
+                    }
+                },
+            },
             _ => Ok(Output::NotConsumed),
         }
+    }
+
+    async fn handle_content_events(
+        &mut self,
+        key_code: KeyCode,
+        client: &Client,
+        controls: &Controls,
+        notifications: &mut NotificationList,
+    ) -> AppResult<Output> {
+        if let Some((_, list)) = self.selected_album_mut() {
+            return list
+                .handle_events(key_code, client, controls, notifications)
+                .await;
+        }
+
+        if let Some((_, list)) = self.selected_playlist_mut() {
+            return list
+                .handle_events(key_code, client, controls, notifications)
+                .await;
+        }
+
+        Ok(Output::NotConsumed)
     }
 
     fn selected_album_mut(&mut self) -> Option<&mut (String, AlbumList)> {

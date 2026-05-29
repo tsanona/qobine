@@ -61,10 +61,7 @@ impl ArtistPopupState {
         let id = artist.id;
         let artist_page = client.artist_page(id).await?;
 
-        let is_album_empty = artist_page.albums.is_empty();
-        let is_top_tracks_empty = artist_page.top_tracks.is_empty();
-
-        let mut state = Self {
+        let state = Self {
             artist_name: artist.name.clone(),
             albums: AlbumList::new(artist_page.albums),
             singles: AlbumList::new(artist_page.singles),
@@ -74,13 +71,6 @@ impl ArtistPopupState {
             top_tracks: TrackList::new(artist_page.top_tracks),
             id: artist.id,
         };
-
-        if !is_album_empty {
-            state.albums.select_first();
-        }
-        if !is_top_tracks_empty {
-            state.top_tracks.select_first();
-        }
 
         Ok(state)
     }
@@ -196,17 +186,11 @@ pub struct AlbumPopupState {
 
 impl AlbumPopupState {
     pub fn new(album: Album) -> Self {
-        let is_empty = album.tracks.is_empty();
-        let mut state = Self {
+        Self {
             title: album.title,
             tracks: TrackList::new(album.tracks),
             id: album.id,
-        };
-
-        if !is_empty {
-            state.tracks.select_first();
         }
-        state
     }
 }
 
@@ -220,19 +204,13 @@ pub struct PlaylistPopupState {
 
 impl PlaylistPopupState {
     pub fn new(playlist: Playlist) -> Self {
-        let is_empty = playlist.tracks.is_empty();
-        let mut state = Self {
+        Self {
             tracks: TrackList::new(playlist.tracks),
             title: playlist.title,
             shuffle: false,
             id: playlist.id,
             is_owned: playlist.is_owned,
-        };
-
-        if !is_empty {
-            state.tracks.select_first();
         }
-        state
     }
 }
 

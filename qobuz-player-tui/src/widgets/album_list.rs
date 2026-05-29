@@ -23,17 +23,19 @@ pub struct AlbumList {
 
 impl AlbumList {
     pub fn new(albums: Vec<AlbumSimple>) -> Self {
-        let albums = FilteredListState::new(albums);
+        let is_empty = albums.is_empty();
+        let mut albums = FilteredListState::new(albums);
+
+        if !is_empty {
+            albums.state.select(Some(0));
+        }
+
         Self { items: albums }
     }
 
     pub fn render(&mut self, area: Rect, buf: &mut Buffer) {
         let table = album_table(self.items.filter());
         table.render(area, buf, &mut self.items.state);
-    }
-
-    pub fn select_first(&mut self) {
-        self.items.state.select(Some(0));
     }
 
     pub fn filter(&self) -> &Vec<AlbumSimple> {

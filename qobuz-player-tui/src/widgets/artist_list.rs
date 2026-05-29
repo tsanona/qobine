@@ -22,7 +22,14 @@ pub struct ArtistList {
 
 impl ArtistList {
     pub fn new(artists: Vec<Artist>) -> Self {
-        let artists = FilteredListState::new(artists);
+        let is_empty = artists.is_empty();
+
+        let mut artists = FilteredListState::new(artists);
+
+        if !is_empty {
+            artists.state.select(Some(0));
+        }
+
         Self { items: artists }
     }
 

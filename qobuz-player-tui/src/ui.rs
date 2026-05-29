@@ -11,6 +11,7 @@ use crate::{
 
 pub const HIGHLIGHT_STYLE: Style = Style::new().white().on_blue();
 pub const HIGHLIGHT_TEXT_STYLE: Style = Style::new().blue();
+pub const SELECTED_STYLE: Style = Style::new().fg(Color::Cyan);
 pub const COLUMN_SPACING: u16 = 2;
 
 impl App {
@@ -286,6 +287,32 @@ pub fn tab_bar<'a>(tabs: Vec<&'a str>, selected: usize) -> Tabs<'a> {
         .highlight_style(HIGHLIGHT_STYLE)
         .divider(symbols::line::VERTICAL)
         .select(selected)
+}
+
+pub fn sidebar<'a>(tabs: Vec<&'a str>, focused: bool) -> (List<'a>, u16) {
+    let width = tabs.iter().map(|tab| tab.len()).max().unwrap_or_default() as u16 + 3;
+
+    let items = tabs.into_iter().map(ListItem::new).collect::<Vec<_>>();
+
+    let highlight_style = match focused {
+        false => SELECTED_STYLE,
+        true => HIGHLIGHT_STYLE,
+    };
+
+    let border_style = match focused {
+        false => Style::default(),
+        true => Style::default().blue(),
+    };
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::RIGHT)
+                .border_style(border_style),
+        )
+        .highlight_style(highlight_style);
+
+    (list, width)
 }
 
 pub fn mark_explicit_and_hifi(

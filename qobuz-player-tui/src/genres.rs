@@ -5,12 +5,13 @@ use qobuz_player_controls::{AppResult, controls::Controls};
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind},
     prelude::*,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, ListState, Paragraph},
 };
 
+use crate::ui::{SELECTED_STYLE, sidebar};
 use crate::{
     app::{NotificationList, Output},
-    ui::{block, tab_bar},
+    ui::block,
     widgets::{album_list::AlbumList, playlist_list::PlaylistList},
 };
 
@@ -19,6 +20,7 @@ pub struct GenresState {
     selected_genre: usize,
     selected_sub_tab: usize,
     mode: GenresMode,
+    focus: GenresFocus,
 }
 
 struct GenreItem {
@@ -32,6 +34,13 @@ struct GenreItem {
 enum GenresMode {
     GenreList,
     GenreDetail,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum GenresFocus {
+    #[default]
+    Sidebar,
+    Content,
 }
 
 impl GenresState {
@@ -53,6 +62,7 @@ impl GenresState {
             selected_genre: 0,
             selected_sub_tab: 0,
             mode: GenresMode::GenreList,
+            focus: Default::default(),
         })
     }
 
@@ -125,7 +135,7 @@ impl GenresState {
             .split(area);
 
         let title = Paragraph::new("Select a Genre")
-            .style(Style::default().fg(Color::Cyan))
+            .style(SELECTED_STYLE)
             .alignment(Alignment::Center);
 
         frame.render_widget(title, chunks[0]);
@@ -182,11 +192,7 @@ impl GenresState {
     fn render_genre_detail(&mut self, frame: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(3),
-                Constraint::Length(2),
-                Constraint::Min(1),
-            ])
+            .constraints([Constraint::Length(2), Constraint::Min(1)])
             .split(area);
 
         let title = format!("← Back | {}", self.genres[self.selected_genre].name);
@@ -209,16 +215,26 @@ impl GenresState {
             )
             .collect::<Vec<_>>();
 
-        let tabs = tab_bar(labels, self.selected_sub_tab);
+        let (sidebar, sidebar_width) = sidebar(labels, self.focus == GenresFocus::Sidebar);
 
-        frame.render_widget(tabs, chunks[1]);
+        let content_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(sidebar_width), Constraint::Min(1)])
+            .split(chunks[1]);
 
-        if let Some(Selected::Album(list)) = self.selected_mut() {
-            list.render(chunks[2], frame.buffer_mut());
-        }
+        let mut sidebar_state = ListState::default();
+        sidebar_state.select(Some(self.selected_sub_tab));
 
-        if let Some(Selected::Playlist(list)) = self.selected_mut() {
-            list.render(chunks[2], frame.buffer_mut());
+        frame.render_stateful_widget(sidebar, content_chunks[0], &mut sidebar_state);
+
+        match self.selected_mut() {
+            Some(Selected::Album(list)) => {
+                list.render(content_chunks[1], frame.buffer_mut());
+            }
+            Some(Selected::Playlist(list)) => {
+                list.render(content_chunks[1], frame.buffer_mut());
+            }
+            None => {}
         }
     }
 
@@ -281,6 +297,7 @@ impl GenresState {
                 self.load_genre(client).await?;
                 self.mode = GenresMode::GenreDetail;
                 self.selected_sub_tab = 0;
+                self.focus = GenresFocus::Sidebar;
 
                 Ok(Output::Consumed)
             }
@@ -298,34 +315,61 @@ impl GenresState {
         match code {
             KeyCode::Esc | KeyCode::Char('q') => {
                 self.mode = GenresMode::GenreList;
+                self.focus = GenresFocus::Sidebar;
 
                 Ok(Output::Consumed)
             }
-            KeyCode::Left | KeyCode::Char('h') => {
-                self.cycle_subtab_backwards();
+            _ => match self.focus {
+                GenresFocus::Sidebar => match code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        self.cycle_subtab_backwards();
 
-                Ok(Output::Consumed)
+                        Ok(Output::Consumed)
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        self.cycle_subtab();
+
+                        Ok(Output::Consumed)
+                    }
+                    KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
+                        self.focus = GenresFocus::Content;
+
+                        Ok(Output::Consumed)
+                    }
+                    _ => Ok(Output::NotConsumed),
+                },
+                GenresFocus::Content => match code {
+                    KeyCode::Left | KeyCode::Char('h') => {
+                        self.focus = GenresFocus::Sidebar;
+
+                        Ok(Output::Consumed)
+                    }
+                    _ => {
+                        self.handle_selected_content_events(code, client, controls, notifications)
+                            .await
+                    }
+                },
+            },
+        }
+    }
+
+    async fn handle_selected_content_events(
+        &mut self,
+        code: KeyCode,
+        client: &Client,
+        controls: &Controls,
+        notifications: &mut NotificationList,
+    ) -> AppResult<Output> {
+        match self.selected_mut() {
+            Some(Selected::Album(list)) => {
+                list.handle_events(code, client, controls, notifications)
+                    .await
             }
-            KeyCode::Right | KeyCode::Char('l') => {
-                self.cycle_subtab();
-
-                Ok(Output::Consumed)
+            Some(Selected::Playlist(list)) => {
+                list.handle_events(code, client, controls, notifications)
+                    .await
             }
-            _ => {
-                if let Some(Selected::Album(list)) = self.selected_mut() {
-                    return list
-                        .handle_events(code, client, controls, notifications)
-                        .await;
-                }
-
-                if let Some(Selected::Playlist(list)) = self.selected_mut() {
-                    return list
-                        .handle_events(code, client, controls, notifications)
-                        .await;
-                }
-
-                Ok(Output::NotConsumed)
-            }
+            None => Ok(Output::NotConsumed),
         }
     }
 

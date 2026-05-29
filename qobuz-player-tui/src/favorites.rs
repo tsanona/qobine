@@ -2,13 +2,14 @@ use qobuz_player_controls::{AppResult, client::Client, controls::Controls};
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind},
     prelude::*,
+    widgets::ListState,
 };
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 use crate::{
     app::{NotificationList, Output},
     sub_tab::SubTab,
-    ui::{block, render_input, tab_bar},
+    ui::{block, render_input, sidebar},
     widgets::{
         album_list::AlbumList,
         artist_list::ArtistList,
@@ -16,6 +17,13 @@ use crate::{
         track_list::{TrackList, TrackListEvent},
     },
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FavoritesFocus {
+    #[default]
+    Sidebar,
+    Content,
+}
 
 pub struct FavoritesState {
     pub editing: bool,
@@ -25,6 +33,7 @@ pub struct FavoritesState {
     pub playlists: PlaylistList,
     pub tracks: TrackList,
     pub sub_tab: SubTab,
+    pub focus: FavoritesFocus,
 }
 
 impl FavoritesState {
@@ -41,6 +50,7 @@ impl FavoritesState {
             ),
             tracks: TrackList::new(favorites.tracks),
             sub_tab: Default::default(),
+            focus: Default::default(),
         })
     }
 
@@ -62,13 +72,18 @@ impl FavoritesState {
 
         let tab_content_area = tab_content_area_split[1].inner(Margin::new(1, 1));
 
+        let (sidebar, sidebar_width) =
+            sidebar(SubTab::labels(), self.focus == FavoritesFocus::Sidebar);
+
         let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(2), Constraint::Min(1)])
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(sidebar_width), Constraint::Min(1)])
             .split(tab_content_area);
 
-        let tabs = tab_bar(SubTab::labels(), self.sub_tab.selected().into());
-        frame.render_widget(tabs, chunks[0]);
+        let mut sidebar_state = ListState::default();
+        sidebar_state.select(Some(self.sub_tab.selected().into()));
+
+        frame.render_stateful_widget(sidebar, chunks[0], &mut sidebar_state);
 
         match self.sub_tab {
             SubTab::Albums => self.albums.render(chunks[1], frame.buffer_mut()),
@@ -86,121 +101,148 @@ impl FavoritesState {
         notifications: &mut NotificationList,
     ) -> AppResult<Output> {
         match event {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                match &mut self.editing {
-                    false => match key_event.code {
-                        KeyCode::Char('e') => {
-                            self.start_editing();
-                            Ok(Output::Consumed)
-                        }
-                        KeyCode::Left | KeyCode::Char('h') => {
-                            self.cycle_subtab_backwards();
-                            Ok(Output::Consumed)
-                        }
-                        KeyCode::Right | KeyCode::Char('l') => {
-                            self.cycle_subtab();
-                            Ok(Output::Consumed)
-                        }
-                        _ => match self.sub_tab {
-                            SubTab::Albums => {
-                                return self
-                                    .albums
-                                    .handle_events(key_event.code, client, controls, notifications)
-                                    .await;
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => match self.editing {
+                false => match key_event.code {
+                    KeyCode::Char('e') => {
+                        self.start_editing();
+                        Ok(Output::Consumed)
+                    }
+                    _ => match self.focus {
+                        FavoritesFocus::Sidebar => match key_event.code {
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                self.cycle_subtab_backwards();
+                                Ok(Output::Consumed)
                             }
-                            SubTab::Artists => {
-                                return self
-                                    .artists
-                                    .handle_events(key_event.code, client, notifications)
-                                    .await;
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                self.cycle_subtab();
+                                Ok(Output::Consumed)
                             }
-                            SubTab::Playlists => {
-                                return self
-                                    .playlists
-                                    .handle_events(key_event.code, client, controls, notifications)
-                                    .await;
+                            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
+                                self.focus = FavoritesFocus::Content;
+                                Ok(Output::Consumed)
                             }
-                            SubTab::Tracks => {
-                                return self
-                                    .tracks
-                                    .handle_events(
-                                        key_event.code,
-                                        client,
-                                        controls,
-                                        notifications,
-                                        TrackListEvent::Track,
-                                    )
-                                    .await;
+                            _ => Ok(Output::NotConsumed),
+                        },
+                        FavoritesFocus::Content => match key_event.code {
+                            KeyCode::Left | KeyCode::Char('h') => {
+                                self.focus = FavoritesFocus::Sidebar;
+                                Ok(Output::Consumed)
+                            }
+                            _ => {
+                                self.handle_content_events(
+                                    key_event.code,
+                                    client,
+                                    controls,
+                                    notifications,
+                                )
+                                .await
                             }
                         },
                     },
-                    true => match key_event.code {
-                        KeyCode::Esc | KeyCode::Enter => {
-                            self.stop_editing();
-                            Ok(Output::Consumed)
-                        }
-                        _ => {
-                            self.filter.handle_event(&event);
+                },
+                true => match key_event.code {
+                    KeyCode::Esc | KeyCode::Enter => {
+                        self.stop_editing();
+                        Ok(Output::Consumed)
+                    }
+                    _ => {
+                        self.filter.handle_event(&event);
 
-                            let match_in = |s: &str| {
-                                s.to_lowercase()
-                                    .contains(&self.filter.value().to_lowercase())
-                            };
+                        let match_in = |s: &str| {
+                            s.to_lowercase()
+                                .contains(&self.filter.value().to_lowercase())
+                        };
 
-                            self.albums.set_filter(
-                                self.albums
-                                    .all_items()
-                                    .iter()
-                                    .filter(|album| {
-                                        match_in(&album.title) || match_in(&album.artist.name)
-                                    })
-                                    .cloned()
-                                    .collect(),
-                            );
+                        self.albums.set_filter(
+                            self.albums
+                                .all_items()
+                                .iter()
+                                .filter(|album| {
+                                    match_in(&album.title) || match_in(&album.artist.name)
+                                })
+                                .cloned()
+                                .collect(),
+                        );
 
-                            self.artists.set_filter(
-                                self.artists
-                                    .all_items()
-                                    .iter()
-                                    .filter(|artist| match_in(&artist.name))
-                                    .cloned()
-                                    .collect(),
-                            );
+                        self.artists.set_filter(
+                            self.artists
+                                .all_items()
+                                .iter()
+                                .filter(|artist| match_in(&artist.name))
+                                .cloned()
+                                .collect(),
+                        );
 
-                            self.playlists.set_filter(
-                                self.playlists
-                                    .all_items()
-                                    .iter()
-                                    .filter(|playlist| match_in(&playlist.title))
-                                    .cloned()
-                                    .collect(),
-                            );
+                        self.playlists.set_filter(
+                            self.playlists
+                                .all_items()
+                                .iter()
+                                .filter(|playlist| match_in(&playlist.title))
+                                .cloned()
+                                .collect(),
+                        );
 
-                            self.tracks.set_filter(
-                                self.tracks
-                                    .all_items()
-                                    .iter()
-                                    .filter(|track| {
-                                        match_in(&track.title)
-                                            || track
-                                                .artist_name
-                                                .as_ref()
-                                                .is_some_and(|artist| match_in(artist))
-                                            || track
-                                                .album_title
-                                                .as_ref()
-                                                .is_some_and(|album| match_in(album))
-                                    })
-                                    .cloned()
-                                    .collect(),
-                            );
+                        self.tracks.set_filter(
+                            self.tracks
+                                .all_items()
+                                .iter()
+                                .filter(|track| {
+                                    match_in(&track.title)
+                                        || track
+                                            .artist_name
+                                            .as_ref()
+                                            .is_some_and(|artist| match_in(artist))
+                                        || track
+                                            .album_title
+                                            .as_ref()
+                                            .is_some_and(|album| match_in(album))
+                                })
+                                .cloned()
+                                .collect(),
+                        );
 
-                            Ok(Output::Consumed)
-                        }
-                    },
-                }
-            }
+                        Ok(Output::Consumed)
+                    }
+                },
+            },
             _ => Ok(Output::NotConsumed),
+        }
+    }
+
+    async fn handle_content_events(
+        &mut self,
+        key_code: KeyCode,
+        client: &Client,
+        controls: &Controls,
+        notifications: &mut NotificationList,
+    ) -> AppResult<Output> {
+        match self.sub_tab {
+            SubTab::Albums => {
+                self.albums
+                    .handle_events(key_code, client, controls, notifications)
+                    .await
+            }
+            SubTab::Artists => {
+                self.artists
+                    .handle_events(key_code, client, notifications)
+                    .await
+            }
+            SubTab::Playlists => {
+                self.playlists
+                    .handle_events(key_code, client, controls, notifications)
+                    .await
+            }
+            SubTab::Tracks => {
+                self.tracks
+                    .handle_events(
+                        key_code,
+                        client,
+                        controls,
+                        notifications,
+                        TrackListEvent::Track,
+                    )
+                    .await
+            }
         }
     }
 

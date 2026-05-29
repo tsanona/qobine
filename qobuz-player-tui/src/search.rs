@@ -2,13 +2,14 @@ use qobuz_player_controls::{AppResult, client::Client, controls::Controls};
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind},
     prelude::*,
+    widgets::ListState,
 };
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 use crate::{
     app::{NotificationList, Output},
     sub_tab::SubTab,
-    ui::{block, render_input, tab_bar},
+    ui::{block, render_input, sidebar},
     widgets::{
         album_list::AlbumList,
         artist_list::ArtistList,
@@ -16,6 +17,13 @@ use crate::{
         track_list::{TrackList, TrackListEvent},
     },
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SearchFocus {
+    #[default]
+    Sidebar,
+    Content,
+}
 
 #[derive(Default)]
 pub struct SearchState {
@@ -26,6 +34,7 @@ pub struct SearchState {
     pub playlists: PlaylistList,
     pub tracks: TrackList,
     pub sub_tab: SubTab,
+    pub focus: SearchFocus,
 }
 
 impl SearchState {
@@ -47,13 +56,18 @@ impl SearchState {
 
         let tab_content_area = tab_content_area_split[1].inner(Margin::new(1, 1));
 
+        let (sidebar, sidebar_width) =
+            sidebar(SubTab::labels(), self.focus == SearchFocus::Sidebar);
+
         let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(2), Constraint::Min(1)])
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(sidebar_width), Constraint::Min(1)])
             .split(tab_content_area);
 
-        let tabs = tab_bar(SubTab::labels(), self.sub_tab.selected().into());
-        frame.render_widget(tabs, chunks[0]);
+        let mut sidebar_state = ListState::default();
+        sidebar_state.select(Some(self.sub_tab.selected().into()));
+
+        frame.render_stateful_widget(sidebar, chunks[0], &mut sidebar_state);
 
         match self.sub_tab {
             SubTab::Albums => self.albums.render(chunks[1], frame.buffer_mut()),
@@ -71,64 +85,95 @@ impl SearchState {
         notifications: &mut NotificationList,
     ) -> AppResult<Output> {
         match event {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                match &mut self.editing {
-                    false => match key_event.code {
-                        KeyCode::Char('e') => {
-                            self.start_editing();
-                            Ok(Output::Consumed)
-                        }
-                        KeyCode::Left | KeyCode::Char('h') => {
-                            self.cycle_subtab_backwards();
-                            Ok(Output::Consumed)
-                        }
-                        KeyCode::Right | KeyCode::Char('l') => {
-                            self.cycle_subtab();
-                            Ok(Output::Consumed)
-                        }
-                        _ => match self.sub_tab {
-                            SubTab::Albums => {
-                                self.albums
-                                    .handle_events(key_event.code, client, controls, notifications)
-                                    .await
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => match self.editing {
+                false => match key_event.code {
+                    KeyCode::Char('e') => {
+                        self.start_editing();
+                        Ok(Output::Consumed)
+                    }
+                    _ => match self.focus {
+                        SearchFocus::Sidebar => match key_event.code {
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                self.cycle_subtab_backwards();
+                                Ok(Output::Consumed)
                             }
-                            SubTab::Artists => {
-                                self.artists
-                                    .handle_events(key_event.code, client, notifications)
-                                    .await
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                self.cycle_subtab();
+                                Ok(Output::Consumed)
                             }
-                            SubTab::Playlists => {
-                                self.playlists
-                                    .handle_events(key_event.code, client, controls, notifications)
-                                    .await
+                            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
+                                self.focus = SearchFocus::Content;
+                                Ok(Output::Consumed)
                             }
-                            SubTab::Tracks => {
-                                self.tracks
-                                    .handle_events(
-                                        key_event.code,
-                                        client,
-                                        controls,
-                                        notifications,
-                                        TrackListEvent::Track,
-                                    )
-                                    .await
+                            _ => Ok(Output::NotConsumed),
+                        },
+                        SearchFocus::Content => match key_event.code {
+                            KeyCode::Left | KeyCode::Char('h') => {
+                                self.focus = SearchFocus::Sidebar;
+                                Ok(Output::Consumed)
+                            }
+                            _ => {
+                                self.handle_content_events(
+                                    key_event.code,
+                                    client,
+                                    controls,
+                                    notifications,
+                                )
+                                .await
                             }
                         },
                     },
-                    true => match key_event.code {
-                        KeyCode::Esc | KeyCode::Enter => {
-                            self.stop_editing();
-                            self.update_search(client).await?;
-                            Ok(Output::Consumed)
-                        }
-                        _ => {
-                            self.filter.handle_event(&event);
-                            Ok(Output::Consumed)
-                        }
-                    },
-                }
-            }
+                },
+                true => match key_event.code {
+                    KeyCode::Esc | KeyCode::Enter => {
+                        self.stop_editing();
+                        self.update_search(client).await?;
+                        Ok(Output::Consumed)
+                    }
+                    _ => {
+                        self.filter.handle_event(&event);
+                        Ok(Output::Consumed)
+                    }
+                },
+            },
             _ => Ok(Output::NotConsumed),
+        }
+    }
+
+    async fn handle_content_events(
+        &mut self,
+        key_code: KeyCode,
+        client: &Client,
+        controls: &Controls,
+        notifications: &mut NotificationList,
+    ) -> AppResult<Output> {
+        match self.sub_tab {
+            SubTab::Albums => {
+                self.albums
+                    .handle_events(key_code, client, controls, notifications)
+                    .await
+            }
+            SubTab::Artists => {
+                self.artists
+                    .handle_events(key_code, client, notifications)
+                    .await
+            }
+            SubTab::Playlists => {
+                self.playlists
+                    .handle_events(key_code, client, controls, notifications)
+                    .await
+            }
+            SubTab::Tracks => {
+                self.tracks
+                    .handle_events(
+                        key_code,
+                        client,
+                        controls,
+                        notifications,
+                        TrackListEvent::Track,
+                    )
+                    .await
+            }
         }
     }
 
@@ -143,7 +188,9 @@ impl SearchState {
                     .map(|x| x.into())
                     .collect(),
             );
+
             self.artists.set_all_items(search_results.artists);
+
             self.playlists.set_all_items(
                 search_results
                     .playlists
@@ -151,6 +198,7 @@ impl SearchState {
                     .map(|x| x.into())
                     .collect(),
             );
+
             self.tracks.set_all_items(search_results.tracks);
         }
 

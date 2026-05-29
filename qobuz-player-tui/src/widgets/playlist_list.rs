@@ -24,7 +24,14 @@ pub struct PlaylistList {
 
 impl PlaylistList {
     pub fn new(playlists: Vec<PlaylistSimple>) -> Self {
-        let playlists = FilteredListState::new(playlists);
+        let is_empty = playlists.is_empty();
+
+        let mut playlists = FilteredListState::new(playlists);
+
+        if !is_empty {
+            playlists.state.select(Some(0));
+        }
+
         Self { items: playlists }
     }
 

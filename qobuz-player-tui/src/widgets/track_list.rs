@@ -30,7 +30,14 @@ pub enum TrackListEvent {
 
 impl TrackList {
     pub fn new(tracks: Vec<Track>) -> Self {
-        let tracks = FilteredListState::new(tracks);
+        let is_empty = tracks.is_empty();
+
+        let mut tracks = FilteredListState::new(tracks);
+
+        if !is_empty {
+            tracks.state.select(Some(0));
+        }
+
         Self { items: tracks }
     }
 
@@ -45,10 +52,6 @@ impl TrackList {
 
     pub fn set_filter(&mut self, items: Vec<Track>) {
         self.items.set_filter(items);
-    }
-
-    pub fn select_first(&mut self) {
-        self.items.state.select(Some(0));
     }
 
     pub fn select_index(&mut self, index: usize) {
