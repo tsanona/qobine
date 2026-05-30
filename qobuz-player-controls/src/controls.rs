@@ -56,6 +56,7 @@ pub enum ControlCommand {
     NewQueue {
         items: Vec<NewQueueItem>,
         play: bool,
+        start_index: Option<usize>,
     },
     ClearQueue,
     // TODO: Consider add a separate "Preferences" command
@@ -190,9 +191,13 @@ impl Controls {
             .expect("infallible");
     }
 
-    pub fn new_queue(&self, items: Vec<NewQueueItem>, play: bool) {
+    pub fn new_queue(&self, items: Vec<NewQueueItem>, play: bool, start_index: Option<usize>) {
         self.tx
-            .send(ControlCommand::NewQueue { items, play })
+            .send(ControlCommand::NewQueue {
+                items,
+                play,
+                start_index,
+            })
             .expect("infallible");
     }
 

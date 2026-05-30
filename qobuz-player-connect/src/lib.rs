@@ -227,20 +227,23 @@ impl ConnectState {
                         .map(|x| Duration::from_millis(x.into()));
 
                     if let Some(position) = position {
+                        tracing::info!("Seeking from connect message");
                         self.controls.seek(position);
                     }
 
-                    let current_position = self.tracklist_receiver.borrow().current_position();
+                    let current_queue_id = self.tracklist_receiver.borrow().current_queue_id();
+
                     let tracklist_position = cmd
                         .current_queue_item
                         .map(|x| x.queue_item_id)
                         .map(|x| x as usize);
 
                     if let Some(tracklist_position) = tracklist_position
-                        && current_position != tracklist_position
+                        && let Some(current_queue_id) = current_queue_id
+                        && current_queue_id != tracklist_position as u64
                     {
                         self.controls.skip_to_position(tracklist_position, true);
-                    }
+                    };
 
                     respond.send(response);
                 }
@@ -306,7 +309,7 @@ impl ConnectState {
                             queue_id: x.queue_item_id,
                         })
                         .collect();
-                    self.controls.new_queue(queue_items, false);
+                    self.controls.new_queue(queue_items, false, None);
                 }
                 Notification::SessionState(session_state) => {
                     tracing::info!("Ignoring session state message: {:?}", session_state);
@@ -325,17 +328,11 @@ impl ConnectState {
                             queue_id: x.queue_item_id,
                         })
                         .collect();
-                    self.controls.new_queue(queue_items, false);
 
-                    let current_position = self.tracklist_receiver.borrow().current_position();
+                    let start_index = queue.queue_position.map(|x| x as usize);
+                    self.controls.new_queue(queue_items, false, start_index);
 
-                    let tracklist_position = queue.queue_position.map(|x| x as usize);
-
-                    if let Some(tracklist_position) = tracklist_position
-                        && current_position != tracklist_position
-                    {
-                        self.controls.skip_to_position(tracklist_position, true);
-                    }
+                    self.controls.play();
                 }
                 Notification::QueueTracksAdded(queue_tracks_added) => {
                     // Added in end of queue

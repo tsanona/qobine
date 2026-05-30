@@ -223,7 +223,6 @@ impl Player {
         match self.sink.seek(duration) {
             Ok(()) => {
                 self.position.send(self.sink.position())?;
-                self.set_target_status(Status::Playing);
             }
             Err(e) => {
                 tracing::warn!("Seek to {:?} failed: {e:?}", duration);
@@ -267,7 +266,7 @@ impl Player {
         Ok(())
     }
 
-    async fn skip_to_position(&mut self, new_position: i32, force: bool) -> AppResult<()> {
+    async fn skip_to_position(&mut self, new_position: usize, force: bool) -> AppResult<()> {
         let mut tracklist = self.tracklist_rx.borrow().clone();
         let current_position = tracklist.current_position();
 
@@ -275,10 +274,7 @@ impl Player {
         // the track is greater than 1 second into playing,
         // then it goes to the beginning. If triggered again
         // within a second after playing, it will skip to the previous track.
-        if !force
-            && new_position < current_position as i32
-            && self.position.borrow().as_millis() > 1000
-        {
+        if !force && new_position < current_position && self.position.borrow().as_millis() > 1000 {
             self.seek(Duration::default())?;
             return Ok(());
         }
@@ -301,14 +297,12 @@ impl Player {
 
     async fn next(&mut self) -> AppResult<()> {
         let current_position = self.tracklist_rx.borrow().current_position();
-        self.skip_to_position((current_position + 1) as i32, true)
-            .await
+        self.skip_to_position(current_position + 1, true).await
     }
 
     async fn previous(&mut self) -> AppResult<()> {
         let current_position = self.tracklist_rx.borrow().current_position();
-        self.skip_to_position(current_position as i32 - 1, false)
-            .await
+        self.skip_to_position(current_position - 1, false).await
     }
 
     async fn new_queue(&mut self, tracklist: Tracklist) -> AppResult<()> {
@@ -326,7 +320,12 @@ impl Player {
         Ok(())
     }
 
-    async fn new_track_queue(&mut self, items: Vec<NewQueueItem>, play: bool) -> AppResult<()> {
+    async fn new_track_queue(
+        &mut self,
+        items: Vec<NewQueueItem>,
+        play: bool,
+        start_index: Option<usize>,
+    ) -> AppResult<()> {
         self.sink.clear()?;
         self.next_track_is_queried = false;
         self.next_track_in_sink_queue = false;
@@ -346,7 +345,10 @@ impl Player {
             item.track.status = TrackStatus::Playing;
         }
 
-        let tracklist = Tracklist::new_with_id(TracklistType::Tracks, queue_items);
+        let mut tracklist = Tracklist::new_with_id(TracklistType::Tracks, queue_items);
+        if let Some(start_index) = start_index {
+            tracklist.skip_to_track(start_index);
+        }
 
         if play && let Some(first_track) = tracklist.current_track() {
             tracing::info!("New queue starting with: {}", first_track.title);
@@ -393,7 +395,7 @@ impl Player {
             .iter()
             .take(index)
             .filter(|t| !t.available)
-            .count() as i32;
+            .count();
 
         let mut tracklist = Tracklist::new(
             TracklistType::Album(tracklist::AlbumTracklist {
@@ -404,7 +406,7 @@ impl Player {
             tracks_to_queue_items(album.tracks.into_iter().filter(|t| t.available).collect()),
         );
 
-        tracklist.skip_to_track(index as i32 - unstreamable_tracks_to_index);
+        tracklist.skip_to_track(index - unstreamable_tracks_to_index);
         self.new_queue(tracklist).await
     }
 
@@ -412,7 +414,7 @@ impl Player {
         let artist = self.client.artist_page(artist_id).await?;
         let tracks = artist.top_tracks;
         let unstreamable_tracks_to_index =
-            tracks.iter().take(index).filter(|t| !t.available).count() as i32;
+            tracks.iter().take(index).filter(|t| !t.available).count();
 
         let mut tracklist = Tracklist::new(
             TracklistType::TopTracks(tracklist::TopTracklist {
@@ -423,7 +425,7 @@ impl Player {
             tracks_to_queue_items(tracks.into_iter().filter(|t| t.available).collect()),
         );
 
-        tracklist.skip_to_track(index as i32 - unstreamable_tracks_to_index);
+        tracklist.skip_to_track(index - unstreamable_tracks_to_index);
         self.new_queue(tracklist).await
     }
 
@@ -461,7 +463,7 @@ impl Player {
                 .iter()
                 .take(index)
                 .filter(|t| !t.available)
-                .count() as i32,
+                .count(),
         };
 
         let mut queue: Vec<QueueItem> = tracks_to_queue_items(
@@ -485,7 +487,7 @@ impl Player {
             queue,
         );
 
-        tracklist.skip_to_track(index as i32 - unstreamable_tracks_to_index);
+        tracklist.skip_to_track(index - unstreamable_tracks_to_index);
 
         self.new_queue(tracklist).await
     }
@@ -618,7 +620,7 @@ impl Player {
                 new_position,
                 force,
             } => {
-                self.skip_to_position(new_position as i32, force).await?;
+                self.skip_to_position(new_position, force).await?;
             }
             ControlCommand::JumpForward => {
                 self.jump_forward()?;
@@ -638,7 +640,11 @@ impl Player {
             }
             ControlCommand::PlayTracksNext { ids } => self.play_tracks_next(ids).await?,
             ControlCommand::ReorderQueue { new_order } => self.reorder_queue(new_order).await?,
-            ControlCommand::NewQueue { items, play } => self.new_track_queue(items, play).await?,
+            ControlCommand::NewQueue {
+                items,
+                play,
+                start_index,
+            } => self.new_track_queue(items, play, start_index).await?,
             ControlCommand::ClearQueue => self.clear_queue().await?,
             ControlCommand::SetAudioCacheDirectory { new_directory } => {
                 self.database.set_cache_directory(&new_directory).await?;
@@ -669,7 +675,7 @@ impl Player {
         let current_position = tracklist.current_position();
         let new_position = current_position + 1;
 
-        let next_track = tracklist.skip_to_track(new_position as i32);
+        let next_track = tracklist.skip_to_track(new_position);
 
         match next_track {
             Some(next_track) => {
