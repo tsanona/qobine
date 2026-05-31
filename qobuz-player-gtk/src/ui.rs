@@ -4,7 +4,7 @@ use gtk4 as gtk;
 use libadwaita as adw;
 
 use adw::NavigationPage;
-use gtk::{Image, gdk, gio, prelude::*};
+use gtk::{gdk, gio, prelude::*};
 use qobuz_player_controls::{
     client::Client,
     controls::Controls,
@@ -36,23 +36,22 @@ pub mod preferences;
 pub mod queue;
 pub mod search_page;
 
-pub fn set_image_from_url(url: Option<&str>, image: &Image) {
+pub fn set_picture_from_url(url: Option<&str>, picture: &gtk::Picture) {
     let Some(url) = url else {
         return;
     };
 
     let file = gio::File::for_uri(url);
+    let picture = picture.clone();
 
-    let image = image.clone();
     file.load_bytes_async(gio::Cancellable::NONE, move |result| match result {
         Ok((bytes, _)) => {
             if let Ok(texture) = gdk::Texture::from_bytes(&bytes) {
-                image.set_paintable(Some(&texture));
+                picture.set_paintable(Some(&texture));
             }
         }
         Err(err) => {
             tracing::error!("Failed to load image: {err}");
-            image.set_icon_name(Some("image-missing"));
         }
     });
 }
@@ -63,8 +62,12 @@ pub fn build_album_tile(album: &AlbumSimple) -> adw::Bin {
         .spacing(6)
         .build();
 
-    let cover = gtk::Image::builder().pixel_size(200).build();
-    set_image_from_url(Some(&album.image), &cover);
+    let cover = gtk::Picture::builder()
+        .width_request(200)
+        .height_request(200)
+        .build();
+
+    set_picture_from_url(Some(&album.image), &cover);
     let cover_frame = gtk::Frame::builder().child(&cover).build();
 
     let title = gtk::Label::builder()
@@ -101,9 +104,15 @@ pub fn build_playlist_tile(playlist: &PlaylistSimple) -> adw::Bin {
         .spacing(6)
         .build();
 
-    let cover = gtk::Image::builder().pixel_size(200).build();
-    set_image_from_url(playlist.image.as_deref(), &cover);
-    let cover_frame = gtk::Frame::builder().child(&cover).build();
+    let cover = gtk::Picture::builder()
+        .width_request(200)
+        .content_fit(gtk::ContentFit::Contain)
+        .build();
+
+    let aspect = gtk::AspectFrame::builder().child(&cover).build();
+
+    set_picture_from_url(playlist.image.as_deref(), &cover);
+    let cover_frame = gtk::Frame::builder().child(&aspect).build();
 
     let title = gtk::Label::builder()
         .label(&playlist.title)
@@ -130,9 +139,15 @@ pub fn build_artist_tile(artist: &Artist) -> adw::Bin {
         .spacing(6)
         .build();
 
-    let cover = gtk::Image::builder().pixel_size(200).build();
-    set_image_from_url(artist.image.as_deref(), &cover);
-    let cover_frame = gtk::Frame::builder().child(&cover).build();
+    let cover = gtk::Picture::builder()
+        .width_request(200)
+        .content_fit(gtk::ContentFit::Contain)
+        .build();
+
+    let aspect = gtk::AspectFrame::builder().child(&cover).build();
+
+    set_picture_from_url(artist.image.as_deref(), &cover);
+    let cover_frame = gtk::Frame::builder().child(&aspect).build();
 
     let title = gtk::Label::builder()
         .label(&artist.name)
@@ -231,9 +246,9 @@ pub fn build_track_row(
 
     match show_cover {
         true => {
-            let cover = gtk::Image::builder().pixel_size(50).build();
+            let cover = gtk::Picture::new();
 
-            set_image_from_url(track.image.as_deref(), &cover);
+            set_picture_from_url(track.image.as_deref(), &cover);
 
             let cover_frame = gtk::Frame::builder().child(&cover).build();
             track_row_box.append(&cover_frame);

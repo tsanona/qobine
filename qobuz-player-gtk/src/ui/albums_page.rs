@@ -23,5 +23,12 @@ pub fn new_albums_page(on_open: Rc<dyn Fn(AlbumHeaderInfo)>) -> AlbumsPage {
         });
     });
 
-    GridPage::new(2, 8, matches_query, build_tile, on_activate)
+    GridPage::new(
+        2,
+        8,
+        gtk::Align::Start,
+        matches_query,
+        build_tile,
+        on_activate,
+    )
 }

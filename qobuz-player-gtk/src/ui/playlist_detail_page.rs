@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use adw::prelude::*;
+use gtk4 as gtk;
 use gtk4::{gdk, gio, prelude::*};
 use libadwaita as adw;
 
@@ -8,6 +9,7 @@ use qobuz_player_controls::{
     TracklistReceiver, client::Client, controls::Controls, models::Track, tracklist::PlayingEntity,
 };
 
+use crate::ui::set_picture_from_url;
 use crate::{
     UiEvent, UiEventSender,
     ui::{
@@ -15,7 +17,7 @@ use crate::{
         detail_page::{
             DetailType, build_detail_header, build_detail_scaffold, populate_playlist_menu,
         },
-        format_time, set_image_from_url,
+        format_time,
     },
 };
 
@@ -32,17 +34,17 @@ pub struct PlaylistDetailPage {
     tracklist_receiver: TracklistReceiver,
     playlist_id: u32,
 
-    stack: gtk4::Stack,
+    stack: gtk::Stack,
 
-    cover: gtk4::Image,
-    title: gtk4::Label,
-    meta: gtk4::Label,
-    owner: gtk4::Label,
+    cover: gtk::Picture,
+    title: gtk::Label,
+    meta: gtk::Label,
+    owner: gtk::Label,
     playlist_menu: gio::Menu,
-    delete_button: gtk4::Button,
-    favorite_button: gtk4::Button,
+    delete_button: gtk::Button,
+    favorite_button: gtk::Button,
 
-    tracks_list: gtk4::ListBox,
+    tracks_list: gtk::ListBox,
 
     current_selected_index: Rc<RefCell<Option<usize>>>,
     tracks: Rc<RefCell<Vec<Track>>>,
@@ -59,22 +61,22 @@ impl PlaylistDetailPage {
         tracklist_receiver: TracklistReceiver,
         ui_event_sender: UiEventSender,
     ) -> Self {
-        let empty_title = gtk4::Box::builder().hexpand(true).build();
+        let empty_title = gtk::Box::builder().hexpand(true).build();
         let nav_bar = adw::HeaderBar::builder().title_widget(&empty_title).build();
 
-        let title = gtk4::Label::builder()
+        let title = gtk::Label::builder()
             .wrap(true)
             .css_classes(vec!["title-1"])
             .build();
 
-        let meta = gtk4::Label::builder()
+        let meta = gtk::Label::builder()
             .wrap(true)
             .css_classes(vec!["dim-label"])
             .build();
 
-        let owner = gtk4::Label::builder().wrap(true).build();
+        let owner = gtk::Label::builder().wrap(true).build();
 
-        let play_button = gtk4::Button::builder()
+        let play_button = gtk::Button::builder()
             .label("Play")
             .icon_name("media-playback-start-symbolic")
             .css_classes(vec!["suggested-action", "pill"])
@@ -87,7 +89,7 @@ impl PlaylistDetailPage {
             }
         });
 
-        let shuffle_button = gtk4::Button::builder()
+        let shuffle_button = gtk::Button::builder()
             .label("Shuffle")
             .icon_name("media-playlist-shuffle-symbolic")
             .css_classes(vec!["pill"])
@@ -100,7 +102,7 @@ impl PlaylistDetailPage {
             }
         });
 
-        let delete_button = gtk4::Button::builder()
+        let delete_button = gtk::Button::builder()
             .label("Delete")
             .icon_name("user-trash-symbolic")
             .css_classes(vec!["destructive-action", "pill"])
@@ -260,7 +262,7 @@ impl PlaylistDetailPage {
                     meta.set_label(&dur_str.to_string());
                     owner.set_label(&format!("By {}", playlist.owner.name));
 
-                    set_image_from_url(playlist.image.as_deref(), &cover);
+                    set_picture_from_url(playlist.image.as_deref(), &cover);
 
                     delete_button.set_visible(playlist.is_owned);
                     favorite_button.set_visible(!playlist.is_owned);
@@ -321,7 +323,7 @@ impl PlaylistDetailPage {
 
                     clear_listbox(&tracks_list);
 
-                    let label = gtk4::Label::builder()
+                    let label = gtk::Label::builder()
                         .label("Failed to load playlist.")
                         .xalign(0.0)
                         .margin_top(12)
@@ -364,7 +366,7 @@ fn update_current_playing(
     playing_entity: &PlayingEntity,
     playlist_id: u32,
     current_selected_index: &Rc<RefCell<Option<usize>>>,
-    tracks_list: &gtk4::ListBox,
+    tracks_list: &gtk::ListBox,
 ) {
     let playing = match playing_entity {
         PlayingEntity::Playlist(p) => p,
@@ -387,7 +389,7 @@ fn update_current_playing(
     }
 }
 
-fn clear_listbox(list: &gtk4::ListBox) {
+fn clear_listbox(list: &gtk::ListBox) {
     while let Some(child) = list.first_child() {
         list.remove(&child);
     }
@@ -395,18 +397,18 @@ fn clear_listbox(list: &gtk4::ListBox) {
 
 fn add_owned_playlist_track_controls(
     playlist_id: u32,
-    row: &impl IsA<gtk4::ListBoxRow>,
-    tracks_list: &gtk4::ListBox,
+    row: &impl IsA<gtk::ListBoxRow>,
+    tracks_list: &gtk::ListBox,
     client: Arc<Client>,
     stored_tracks: Rc<RefCell<Vec<Track>>>,
     current_selected_index: Rc<RefCell<Option<usize>>>,
 ) {
-    let listbox_row = row.upcast_ref::<gtk4::ListBoxRow>();
+    let listbox_row = row.upcast_ref::<gtk::ListBoxRow>();
 
-    let remove_button = gtk4::Button::builder()
+    let remove_button = gtk::Button::builder()
         .icon_name("user-trash-symbolic")
         .tooltip_text("Remove from playlist")
-        .valign(gtk4::Align::Center)
+        .valign(gtk::Align::Center)
         .css_classes(vec!["flat"])
         .build();
 
@@ -505,12 +507,12 @@ fn add_owned_playlist_track_controls(
     });
 
     if let Some(child) = listbox_row.child()
-        && let Ok(hbox) = child.downcast::<gtk4::Box>()
+        && let Ok(hbox) = child.downcast::<gtk::Box>()
     {
         hbox.append(&remove_button);
     }
 
-    let drag_source = gtk4::DragSource::builder()
+    let drag_source = gtk::DragSource::builder()
         .actions(gdk::DragAction::MOVE)
         .build();
 
@@ -527,7 +529,7 @@ fn add_owned_playlist_track_controls(
 
     listbox_row.add_controller(drag_source);
 
-    let drop_target = gtk4::DropTarget::new(u32::static_type(), gdk::DragAction::MOVE);
+    let drop_target = gtk::DropTarget::new(u32::static_type(), gdk::DragAction::MOVE);
 
     drop_target.connect_drop({
         let target_row = listbox_row.clone();

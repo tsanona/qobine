@@ -449,7 +449,7 @@ impl Client {
             .into_iter()
             .map(parse_artist)
             .collect();
-        artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        artists.sort_by_key(|a| a.name.to_lowercase());
 
         let mut playlists: Vec<_> = user_playlists
             .playlists
@@ -458,7 +458,7 @@ impl Client {
             .map(|x| parse_playlist(x, client.user_id(), &audio_quality))
             .collect();
 
-        playlists.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        playlists.sort_by_key(|a| a.title.to_lowercase());
 
         let mut tracks: Vec<_> = favorites_result
             .tracks
@@ -467,7 +467,7 @@ impl Client {
             .map(|x| parse_track(x, &audio_quality))
             .collect();
 
-        tracks.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        tracks.sort_by_key(|a| a.title.to_lowercase());
 
         let favorites = Favorites {
             albums,

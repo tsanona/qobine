@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use glib::object::Cast;
+use gtk4 as gtk;
 use qobuz_player_controls::models::Artist;
 
 use crate::ui::artist_detail_page::ArtistHeaderInfo;
@@ -18,5 +19,12 @@ pub fn new_artists_page(on_open: Rc<dyn Fn(ArtistHeaderInfo)>) -> ArtistsPage {
         on_open(ArtistHeaderInfo { id: artist.id });
     });
 
-    GridPage::new(2, 10, matches_query, build_tile, on_activate)
+    GridPage::new(
+        2,
+        10,
+        gtk::Align::End,
+        matches_query,
+        build_tile,
+        on_activate,
+    )
 }

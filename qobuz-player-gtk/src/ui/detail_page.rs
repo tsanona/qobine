@@ -11,7 +11,7 @@ use crate::{UiEvent, UiEventSender};
 
 pub struct DetailHeaderParts {
     pub header_section: gtk::Box,
-    pub cover: gtk::Image,
+    pub cover: gtk::Picture,
     pub playlist_menu: gio::Menu,
     pub favorite_button: gtk::Button,
 }
@@ -25,11 +25,18 @@ pub fn build_detail_header(
     buttons: Vec<gtk::Button>,
     favorite_button_type: DetailType,
 ) -> DetailHeaderParts {
-    let cover = gtk::Image::builder().pixel_size(cover_pixel_size).build();
+    let cover = gtk::Picture::builder()
+        .content_fit(gtk::ContentFit::Cover)
+        .build();
+
+    let clamp = adw::Clamp::builder()
+        .child(&cover)
+        .maximum_size(cover_pixel_size)
+        .build();
 
     let cover_frame = gtk::Frame::builder()
         .valign(gtk::Align::End)
-        .child(&cover)
+        .child(&clamp)
         .build();
 
     let header_text = gtk::Box::builder()

@@ -12,7 +12,7 @@ use qobuz_player_controls::{
 
 use crate::ui::{
     album_detail_page::AlbumHeaderInfo, artist_detail_page::ArtistHeaderInfo, clickable_tile,
-    format_time, playlist_detail_page::PlaylistHeaderInfo, set_image_from_url,
+    format_time, playlist_detail_page::PlaylistHeaderInfo, set_picture_from_url,
 };
 
 #[derive(Clone)]
@@ -20,7 +20,7 @@ pub struct NowPlayingBar {
     pub revealer: gtk::Revealer,
     track_title_label: gtk::Label,
     subtitle_box: gtk::Box,
-    cover: gtk::Image,
+    cover: gtk::Picture,
     pub play_button: gtk::Button,
 
     progress_scale: gtk::Scale,
@@ -139,8 +139,15 @@ impl NowPlayingBar {
         player_box.append(&controls_box);
         player_box.append(&progress_box);
 
-        let cover = gtk::Image::builder().pixel_size(75).build();
-        let cover_frame = gtk::Frame::builder().child(&cover).build();
+        let cover = gtk::Picture::new();
+        cover.set_content_fit(gtk::ContentFit::Contain);
+        cover.set_can_shrink(true);
+        cover.set_hexpand(false);
+        cover.set_vexpand(false);
+
+        let clamp = adw::Clamp::builder().child(&cover).maximum_size(75).build();
+
+        let cover_frame = gtk::Frame::builder().child(&clamp).build();
 
         let content = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
@@ -289,7 +296,7 @@ impl NowPlayingBar {
         self.progress_total_label
             .set_text(&format_time(track.duration_seconds));
 
-        set_image_from_url(image.as_deref(), &self.cover);
+        set_picture_from_url(image.as_deref(), &self.cover);
 
         self.revealer.set_reveal_child(true);
     }

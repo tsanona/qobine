@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use glib::object::Cast;
+use gtk4 as gtk;
 use qobuz_player_controls::models::PlaylistSimple;
 
 use crate::ui::build_playlist_tile;
@@ -19,5 +20,12 @@ pub fn new_playlists_page(on_open: Rc<dyn Fn(PlaylistHeaderInfo)>) -> PlaylistsP
         on_open(PlaylistHeaderInfo { id: playlist.id });
     });
 
-    GridPage::new(2, 10, matches_query, build_tile, on_activate)
+    GridPage::new(
+        2,
+        10,
+        gtk::Align::End,
+        matches_query,
+        build_tile,
+        on_activate,
+    )
 }

@@ -1,7 +1,8 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use glib::WeakRef;
-use gtk4::{gio, prelude::*};
+use gtk::{gio, prelude::*};
+use gtk4 as gtk;
 use libadwaita as adw;
 
 use qobuz_player_controls::{
@@ -17,7 +18,7 @@ use crate::{
         detail_page::{
             DetailType, build_detail_header, build_detail_scaffold, populate_playlist_menu,
         },
-        format_time, section, set_image_from_url,
+        format_time, section, set_picture_from_url,
     },
 };
 
@@ -35,18 +36,18 @@ pub struct AlbumDetailPage {
 
     album_id: String,
 
-    stack: gtk4::Stack,
+    stack: gtk::Stack,
 
-    cover: gtk4::Image,
-    title: gtk4::Label,
-    artist_box: gtk4::Box,
-    meta: gtk4::Label,
+    cover: gtk::Picture,
+    title: gtk::Label,
+    artist_box: gtk::Box,
+    meta: gtk::Label,
     playlist_menu: gio::Menu,
 
-    content: gtk4::Box,
-    tracks_list: gtk4::ListBox,
+    content: gtk::Box,
+    tracks_list: gtk::ListBox,
 
-    track_rows: Rc<RefCell<HashMap<u32, WeakRef<gtk4::ListBoxRow>>>>,
+    track_rows: Rc<RefCell<HashMap<u32, WeakRef<gtk::ListBoxRow>>>>,
     current_selected_id: Rc<RefCell<Option<u32>>>,
     on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
     on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
@@ -64,25 +65,25 @@ impl AlbumDetailPage {
         on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
         on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
     ) -> Self {
-        let empty_title = gtk4::Box::builder().hexpand(true).build();
+        let empty_title = gtk::Box::builder().hexpand(true).build();
         let nav_bar = adw::HeaderBar::builder().title_widget(&empty_title).build();
 
-        let title = gtk4::Label::builder()
+        let title = gtk::Label::builder()
             .wrap(true)
             .css_classes(vec!["title-1"])
             .build();
 
-        let artist_box = gtk4::Box::builder()
-            .orientation(gtk4::Orientation::Horizontal)
-            .halign(gtk4::Align::Center)
+        let artist_box = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .halign(gtk::Align::Center)
             .build();
 
-        let meta = gtk4::Label::builder()
+        let meta = gtk::Label::builder()
             .wrap(true)
             .css_classes(vec!["dim-label"])
             .build();
 
-        let play_button = gtk4::Button::builder()
+        let play_button = gtk::Button::builder()
             .label("Play")
             .icon_name("media-playback-start-symbolic")
             .css_classes(vec!["suggested-action", "pill"])
@@ -197,7 +198,7 @@ impl AlbumDetailPage {
                         artist_box.remove(&child);
                     }
 
-                    let artist_label = gtk4::Label::builder()
+                    let artist_label = gtk::Label::builder()
                         .label(&album.artist.name)
                         .wrap(true)
                         .css_classes(vec!["title-3", "dim-label"])
@@ -214,7 +215,7 @@ impl AlbumDetailPage {
                     let dur_str = format_time(album.duration_seconds);
                     meta.set_label(&format!("{year_str} • {dur_str}"));
 
-                    set_image_from_url(Some(&album.image), &cover);
+                    set_picture_from_url(Some(&album.image), &cover);
 
                     clear_listbox(&tracks_list);
 
@@ -300,8 +301,8 @@ impl DetailPage for AlbumDetailPage {
 fn update_current_playing(
     playing_entity: &PlayingEntity,
     current_selected_id: &Rc<RefCell<Option<u32>>>,
-    tracks_list: &gtk4::ListBox,
-    track_rows: &Rc<RefCell<HashMap<u32, WeakRef<gtk4::ListBoxRow>>>>,
+    tracks_list: &gtk::ListBox,
+    track_rows: &Rc<RefCell<HashMap<u32, WeakRef<gtk::ListBoxRow>>>>,
 ) {
     let track_id = match playing_entity {
         PlayingEntity::Track(t) => Some(t.id),
@@ -326,7 +327,7 @@ fn update_current_playing(
     }
 }
 
-fn clear_listbox(list: &gtk4::ListBox) {
+fn clear_listbox(list: &gtk::ListBox) {
     while let Some(child) = list.first_child() {
         list.remove(&child);
     }

@@ -36,6 +36,7 @@ impl<T: 'static> GridPage<T> {
     pub fn new(
         min_columns: u32,
         max_columns: u32,
+        alignment: gtk::Align,
         matches_query: Rc<dyn Fn(&T, &str) -> bool>,
         build_tile: Rc<dyn Fn(&T) -> gtk::Widget>,
         on_activate: Rc<dyn Fn(&T)>,
@@ -106,6 +107,12 @@ impl<T: 'static> GridPage<T> {
 
             let item_ref: std::cell::Ref<T> = boxed.borrow();
             let tile = (build_tile_for_bind)(&item_ref);
+
+            wrapper.set_valign(gtk::Align::Fill);
+            wrapper.set_vexpand(true);
+
+            tile.set_valign(alignment);
+            tile.set_vexpand(true);
 
             wrapper.append(&tile);
         });

@@ -1,6 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::Arc};
 
 use glib::WeakRef;
+use gtk4 as gtk;
 use gtk4::{gio, prelude::*};
 use libadwaita as adw;
 
@@ -8,6 +9,7 @@ use qobuz_player_controls::{
     TracklistReceiver, client::Client, controls::Controls, tracklist::PlayingEntity,
 };
 
+use crate::ui::set_picture_from_url;
 use crate::{
     UiEventSender,
     ui::{
@@ -17,7 +19,7 @@ use crate::{
         detail_page::{
             DetailType, build_detail_header, build_detail_scaffold, populate_playlist_menu,
         },
-        section, set_image_from_url,
+        section,
     },
 };
 
@@ -37,16 +39,16 @@ pub struct ArtistDetailPage {
     on_open_album: Rc<dyn Fn(AlbumHeaderInfo)>,
     on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
 
-    stack: gtk4::Stack,
+    stack: gtk::Stack,
 
-    cover: gtk4::Image,
-    name: gtk4::Label,
+    cover: gtk::Picture,
+    name: gtk::Label,
     playlist_menu: gio::Menu,
 
-    content: gtk4::Box,
-    tracks_list: gtk4::ListBox,
+    content: gtk::Box,
+    tracks_list: gtk::ListBox,
 
-    track_rows: Rc<RefCell<HashMap<u32, WeakRef<gtk4::ListBoxRow>>>>,
+    track_rows: Rc<RefCell<HashMap<u32, WeakRef<gtk::ListBoxRow>>>>,
     current_selected_id: Rc<RefCell<Option<u32>>>,
 
     loaded: RefCell<bool>,
@@ -63,15 +65,15 @@ impl ArtistDetailPage {
         on_open_artist: Rc<dyn Fn(ArtistHeaderInfo)>,
         ui_event_sender: UiEventSender,
     ) -> Self {
-        let empty_title = gtk4::Box::builder().hexpand(true).build();
+        let empty_title = gtk::Box::builder().hexpand(true).build();
         let nav_bar = adw::HeaderBar::builder().title_widget(&empty_title).build();
 
-        let name = gtk4::Label::builder()
+        let name = gtk::Label::builder()
             .css_classes(["title-1"])
             .wrap(true)
             .build();
 
-        let play_button = gtk4::Button::builder()
+        let play_button = gtk::Button::builder()
             .label("Play")
             .icon_name("media-playback-start-symbolic")
             .css_classes(vec!["suggested-action", "pill"])
@@ -173,7 +175,7 @@ impl ArtistDetailPage {
             match client.artist_page(artist_id).await {
                 Ok(artist) => {
                     name.set_label(&artist.name);
-                    set_image_from_url(artist.image.as_deref(), &cover);
+                    set_picture_from_url(artist.image.as_deref(), &cover);
 
                     clear_listbox(&tracks_list);
 
@@ -286,8 +288,8 @@ impl DetailPage for ArtistDetailPage {
 fn update_current_playing(
     playing_entity: &PlayingEntity,
     current_selected_id: &Rc<RefCell<Option<u32>>>,
-    tracks_list: &gtk4::ListBox,
-    track_rows: &Rc<RefCell<HashMap<u32, WeakRef<gtk4::ListBoxRow>>>>,
+    tracks_list: &gtk::ListBox,
+    track_rows: &Rc<RefCell<HashMap<u32, WeakRef<gtk::ListBoxRow>>>>,
 ) {
     let track_id = match playing_entity {
         PlayingEntity::Track(t) => Some(t.id),
@@ -312,7 +314,7 @@ fn update_current_playing(
     }
 }
 
-fn clear_listbox(list: &gtk4::ListBox) {
+fn clear_listbox(list: &gtk::ListBox) {
     while let Some(child) = list.first_child() {
         list.remove(&child);
     }
