@@ -210,9 +210,20 @@ impl AlbumDetailPage {
 
                     artist_box.append(&button);
 
-                    let year_str = album.release_year.to_string();
-                    let dur_str = format_time(album.duration_seconds);
-                    meta.set_label(&format!("{year_str} • {dur_str}"));
+                    let year_string = album.release_year.to_string();
+                    let duration_string = format_time(album.duration_seconds);
+                    let mut meta_info = vec![year_string.as_str(), &duration_string];
+
+                    if album.explicit {
+                        meta_info.push("Explicit");
+                    }
+                    if album.hires_available {
+                        meta_info.push("Hi-res");
+                    }
+
+                    let meta_info_label = meta_info.join(" • ");
+
+                    meta.set_label(&meta_info_label);
 
                     set_picture_from_url(Some(&album.image), &cover);
 
