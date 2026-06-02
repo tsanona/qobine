@@ -25,82 +25,103 @@
           ];
         };
 
-        commonArgs = with pkgs; {
-          inherit src;
-          strictDeps = true;
+        mkCommonArgs = { binName, features ? "" }:
+          with pkgs; {
+            inherit src;
+            strictDeps = true;
 
-          nativeBuildInputs = [ 
-            pkg-config 
-            sqlx-cli 
-            just
-            # --feature mqtt
-            cmake
-          ];
+            pname = "qobine";
 
-          buildInputs = [
-            # qobuz-player + qobuz-player-connect + qobuz-player-rfid + qobuz-player-web (base libs)
-            alsa-lib
-            openssl
-            # qobuz-player-gtk (+ base libs)
-            libadwaita
-            webkitgtk_6_0
-          ];
-        };
+            nativeBuildInputs = [ 
+              pkg-config 
+              sqlx-cli 
+              just
+              # # --feature mqtt
+              # cmake
+            ] ++ lib.optional (builtins.elem features ["mqtt" "all"]) cmake;
 
-        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+            buildInputs = [
+              # qobuz-player + qobuz-player-connect + qobuz-player-rfid + qobuz-player-web (base libs)
+              alsa-lib
+              openssl
+              # # qobuz-player-gtk (+ base libs)
+              # libadwaita
+              # webkitgtk_6_0
+            ] ++ lib.optionals (builtins.elem binName ["qobuz-player-gtk" "all"] ) [ libadwaita webkitgtk_6_0 ];
+          };
+        
+        mkDbUrlEnvVar = { path }: "DATABASE_URL=sqlite:///${path}/qobuz-player.db";
 
-        qobine-connect = craneLib.buildPackage (
-          commonArgs
-          // {
-            inherit cargoArtifacts;
+        # binName = "all" because buildDepsOnly tries to build full workspace (even with cargo extra args set) and thus needs all libs.
+        cargoArtifacts = craneLib.buildDepsOnly (mkCommonArgs { binName = "all"; features ="all"; });
 
-            pname = "qobine-connect";
-            cargoExtraArgs = "--bin qobuz-player-connect";
+        mkQobineBin = { binName, features ? "" }:
+          craneLib.buildPackage (
+            (mkCommonArgs { inherit binName features; })
+            // {
+              inherit cargoArtifacts;
 
-            preBuild = ''
-              export DATABASE_URL=sqlite://$(pwd)/qobuz-player.db
-              just init-database
-            '';
+              cargoExtraArgs = "--bin ${binName}" + lib.optionalString (features != "") " --features '${features}'";
 
-            # include initialized database in package to ship into container.
-            postInstall = ''
-              mkdir -p $out/data
-              cp qobuz-player.db $out/data/
-            '';
+              pname = binName;
 
-            doCheck = false;
-          }
-        );
+              preBuild = ''
+                export ${mkDbUrlEnvVar { path = "$(pwd)"; }}
+                just init-database
+              '';
+
+              # include initialized database in package to ship into container.
+              postInstall = ''
+                mkdir -p $out/data
+                cp qobuz-player.db $out/data/
+              '';
+
+              doCheck = false;
+            }
+          );
       in
       {
         devShell = craneLib.devShell {
-          inputsFrom = [ qobine-connect ];
+          inputsFrom = [ (mkCommonArgs { binName = "all"; features = "all"; }) ];
 
           shellHook = ''
-            just create-env-file
+            export ${mkDbUrlEnvVar { path = "tmp"; }}
             just init-database
           '';
 
         };
 
-        packages.qobine-connect = qobine-connect;
+        packages.container = 
+          let
+            binName = "qobuz-player-connect";
+            redirectHost = "0.0.0.0";
+            redirectPort = "42859";
+          in pkgs.dockerTools.buildImage {
 
-        packages.container = pkgs.dockerTools.buildImage {
-          name = "qobine";
+          name = binName;
 
           copyToRoot = pkgs.buildEnv {
             name = "image-root";
-            paths = [ qobine-connect pkgs.cacert ];
+            paths = [
+              (mkQobineBin { inherit binName; features = "mqtt"; })
+              pkgs.cacert
+              pkgs.tini
+            ];
           };
 
           config = {
-            Cmd = [ "qobuz-player-connect" ];
+            Cmd = [ "tini" "--" binName ];
             Env = [
               "RUST_LOG=info" 
-              "DATABASE_URL=sqlite:///data/qobuz-player.db" 
+              (mkDbUrlEnvVar { path = "data"; }) #DATABASE_URL
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "QOBINE_REDIRECT_PORT=${redirectPort}"
+              "QOBINE_REDIRECT_HOST=${redirectHost}"
             ];
             Volumes = { "/data" = {}; };
+            ExposedPorts = {
+                "${redirectPort}/tcp" = {};
+              };
           };
         };
       }

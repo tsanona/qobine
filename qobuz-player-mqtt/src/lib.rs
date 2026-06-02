@@ -27,7 +27,7 @@ pub struct MqttConfig {
     ///
     /// Expects a string in the form {tcp|ssl}://{host}:{port},
     /// where host can be an IP address or domain name.
-    #[cfg_attr(feature = "cli", clap(long, value_parser = check_server_uri))]
+    #[cfg_attr(feature = "cli", clap(long, value_parser = check_server_uri, env))]
     mqtt_server_uri: String,
     /// Sets the user name for authentication with the broker.
     #[cfg_attr(feature = "cli", clap(long, requires("mqtt_password")))]

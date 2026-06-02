@@ -38,3 +38,9 @@ impl From<reqwest::Error> for Error {
         }
     }
 }
+
+impl From<std::num::ParseIntError> for Error {
+    fn from(_: std::num::ParseIntError) -> Self {
+        Self::Login
+    }
+}

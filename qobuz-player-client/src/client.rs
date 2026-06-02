@@ -183,9 +183,14 @@ impl Display for Endpoint {
 }
 
 pub async fn browser_oauth_login(headless: bool, app_id: &str) -> Result<OAuthResult> {
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|_| Error::Login)?;
-    let port = listener.local_addr().map_err(|_| Error::Login)?.port();
-    drop(listener);
+    // TODO: move to cli with default
+    let port = if let Ok(port) = std::env::var("QOBINE_REDIRECT_PORT") {
+        port.parse()?
+    } else {
+        TcpListener::bind("127.0.0.1:0")
+            .and_then(|listner| listner.local_addr().map(|sock_addr| sock_addr.port()))
+            .map_err(|_| Error::Login)?
+    };
 
     let oauth_url = build_oauth_url(app_id, port);
 
@@ -206,7 +211,9 @@ pub async fn browser_oauth_login(headless: bool, app_id: &str) -> Result<OAuthRe
         }),
     );
 
-    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}"))
+    // TODO: move to cli with default
+    let host = std::env::var("QOBINE_REDIRECT_HOST").unwrap_or("127.0.0.1".into());
+    let listener = tokio::net::TcpListener::bind(format!("{host}:{port}"))
         .await
         .map_err(|_| Error::Login)?;
 
@@ -217,7 +224,7 @@ pub async fn browser_oauth_login(headless: bool, app_id: &str) -> Result<OAuthRe
     println!("Login to Qobuz in browser...");
     if headless {
         let manual_oauth_url = format!(
-            "https://www.qobuz.com/signin/oauth?ext_app_id={app_id}&redirect_url=http%3A%2F%2Flocalhost"
+            "https://www.qobuz.com/signin/oauth?ext_app_id={app_id}&redirect_url=http%3A%2F%2Flocalhost%3A{port}"
         );
 
         println!("Headless? Open this URL on another device instead:");
