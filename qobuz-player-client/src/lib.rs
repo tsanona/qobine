@@ -39,8 +39,14 @@ impl From<reqwest::Error> for Error {
     }
 }
 
-impl From<std::num::ParseIntError> for Error {
-    fn from(_: std::num::ParseIntError) -> Self {
+impl From<std::io::Error> for Error {
+    fn from(_: std::io::Error) -> Self {
+        Self::Login
+    }
+}
+
+impl From<local_ip_address::Error> for Error {
+    fn from(_: local_ip_address::Error) -> Self {
         Self::Login
     }
 }

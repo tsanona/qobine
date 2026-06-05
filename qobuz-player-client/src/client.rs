@@ -182,17 +182,17 @@ impl Display for Endpoint {
     }
 }
 
+/// Build the OAuth URL that the user should open in their browser.
+fn build_oauth_url(app_id: &str, redirect_host: &str, redirect_port: u16) -> String {
+    format!("https://www.qobuz.com/signin/oauth?ext_app_id={app_id}&redirect_url=http://{redirect_host}:{redirect_port}")
+}
+
 pub async fn browser_oauth_login(headless: bool, app_id: &str) -> Result<OAuthResult> {
     // TODO: move to cli with default
-    let port = if let Ok(port) = std::env::var("QOBINE_REDIRECT_PORT") {
-        port.parse()?
-    } else {
-        TcpListener::bind("127.0.0.1:0")
-            .and_then(|listner| listner.local_addr().map(|sock_addr| sock_addr.port()))
-            .map_err(|_| Error::Login)?
-    };
-
-    let oauth_url = build_oauth_url(app_id, port);
+    let port = std::env::var("QOBINE_REDIRECT_PORT").unwrap_or("0".into());
+    let listener = TcpListener::bind(format!("0.0.0.0:{port}"))?;
+    listener.set_nonblocking(true)?;
+    let port = listener.local_addr()?.port();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
 
@@ -211,21 +211,15 @@ pub async fn browser_oauth_login(headless: bool, app_id: &str) -> Result<OAuthRe
         }),
     );
 
-    // TODO: move to cli with default
-    let host = std::env::var("QOBINE_REDIRECT_HOST").unwrap_or("127.0.0.1".into());
-    let listener = tokio::net::TcpListener::bind(format!("{host}:{port}"))
-        .await
-        .map_err(|_| Error::Login)?;
-
+    let listener = tokio::net::TcpListener::from_std(listener)?;
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.ok();
     });
 
     println!("Login to Qobuz in browser...");
     if headless {
-        let manual_oauth_url = format!(
-            "https://www.qobuz.com/signin/oauth?ext_app_id={app_id}&redirect_url=http%3A%2F%2Flocalhost%3A{port}"
-        );
+        let local_ip = local_ip_address::local_ip()?.to_string();
+        let manual_oauth_url = build_oauth_url(app_id, &local_ip, port);
 
         println!("Headless? Open this URL on another device instead:");
         println!();
@@ -237,7 +231,7 @@ pub async fn browser_oauth_login(headless: bool, app_id: &str) -> Result<OAuthRe
         println!("Or if on the same network, the redirect will be captured automatically.");
         println!();
     }
-    let _ = open::that(&oauth_url);
+    let _ = open::that(build_oauth_url(app_id, "localhost", port));
 
     let code: String = if headless {
         let mut stdin_task = Some(tokio::spawn(read_code_from_stdin()));
@@ -279,7 +273,7 @@ pub async fn browser_oauth_login(headless: bool, app_id: &str) -> Result<OAuthRe
         Error::Login
     })?;
 
-    Ok(result)
+    Ok::<OAuthResult, Error>(result)
 }
 
 async fn read_code_from_stdin() -> Result<String, Error> {
@@ -1158,12 +1152,6 @@ pub async fn exchange_oauth_code(code: &str, app_id: &str) -> Result<OAuthResult
         user_auth_token,
         user_id,
     })
-}
-
-/// Build the OAuth URL that the user should open in their browser.
-fn build_oauth_url(app_id: &str, redirect_port: u16) -> String {
-    let redirect = format!("http://localhost:{redirect_port}");
-    format!("https://www.qobuz.com/signin/oauth?ext_app_id={app_id}&redirect_url={redirect}",)
 }
 
 struct Secrets {
