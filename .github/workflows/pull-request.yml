@@ -78,11 +78,17 @@ jobs:
         run: |
           sudo apt-get update
 
-      - name: Install dependencies
+      - name: Install ubuntu dependencies
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libasound2-dev
+
+      - name: Install windows dependencies
+        if: startsWith(matrix.os, 'windows')
+        shell: powershell
+        run: |
+          vcpkg install openssl
 
       - name: Test 
         run: cargo test --workspace --exclude qobuz-player-client --exclude qobuz-player-gtk
@@ -90,6 +96,9 @@ jobs:
       - name: Build gpio 
         if: startsWith(matrix.os, 'ubuntu')
         run: cargo build --workspace --features gpio --exclude qobuz-player-gtk
+
+      - name: Build mqtt
+        run: cargo build --workspace --features mqtt --exclude qobuz-player-gtk
 
   build-flatpak:
     name: "Flatpak ${{ matrix.variant.arch }}"
