@@ -1,6 +1,11 @@
+use std::collections::HashSet;
+
 use qobuz_player_controls::{
+    AppResult,
+    client::Client,
     controls::Controls,
     models::{Track, TrackStatus},
+    notification::Notification,
 };
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEventKind},
@@ -10,8 +15,8 @@ use ratatui::{
 };
 
 use crate::{
-    app::Output,
-    ui::{basic_list_table, block, mark_explicit_and_hifi},
+    app::{FavoriteAdd, FavoriteRemove, NotificationList, Output},
+    ui::{basic_list_table, block, mark_explicit_and_hifi, mark_favorite},
 };
 
 pub struct QueueState {
@@ -26,7 +31,7 @@ impl QueueState {
             state: Default::default(),
         }
     }
-    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, favorite_tracks: &HashSet<u32>) {
         let table = basic_list_table(
             self.items
                 .iter()
@@ -40,18 +45,20 @@ impl QueueState {
                             Style::default().add_modifier(Modifier::CROSSED_OUT)
                         }
                     };
-                    Row::new(Line::from(vec![
-                        format!(
-                            "{} {}",
-                            index + 1,
-                            mark_explicit_and_hifi(
-                                track.title.clone(),
-                                track.explicit,
-                                track.hires_available
-                            )
-                        )
-                        .set_style(style),
-                    ]))
+
+                    let title = mark_favorite(
+                        mark_explicit_and_hifi(
+                            track.title.clone(),
+                            track.explicit,
+                            track.hires_available,
+                        ),
+                        favorite_tracks.contains(&track.id),
+                    );
+
+                    let mut spans = vec![Span::from(format!("{} ", index + 1))];
+                    spans.extend(title.spans);
+
+                    Row::new(vec![Line::from(spans).set_style(style)])
                 })
                 .collect(),
             true,
@@ -69,24 +76,30 @@ impl QueueState {
         self.items = items
     }
 
-    pub async fn handle_events(&mut self, event: Event, controls: &Controls) -> Output {
+    pub async fn handle_events(
+        &mut self,
+        event: Event,
+        client: &Client,
+        controls: &Controls,
+        notifications: &mut NotificationList,
+    ) -> AppResult<Output> {
         match event {
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 match key_event.code {
                     KeyCode::Down | KeyCode::Char('j') => {
                         self.state.select_next();
-                        Output::Consumed
+                        Ok(Output::Consumed)
                     }
                     KeyCode::Up | KeyCode::Char('k') => {
                         self.state.select_previous();
-                        Output::Consumed
+                        Ok(Output::Consumed)
                     }
                     KeyCode::Char('d') => {
                         let index = self.state.selected();
 
                         if let Some(index) = index {
                             if index == self.items().len() - 1 {
-                                return Output::Consumed;
+                                return Ok(Output::Consumed);
                             }
 
                             let mut order: Vec<_> =
@@ -95,14 +108,14 @@ impl QueueState {
                             order.swap(index, index + 1);
                             controls.reorder_queue(order);
                         }
-                        Output::Consumed
+                        Ok(Output::Consumed)
                     }
                     KeyCode::Char('u') => {
                         let index = self.state.selected();
 
                         if let Some(index) = index {
                             if index == 0 {
-                                return Output::Consumed;
+                                return Ok(Output::Consumed);
                             }
                             let mut order: Vec<_> =
                                 self.items().iter().enumerate().map(|x| x.0).collect();
@@ -110,7 +123,7 @@ impl QueueState {
                             order.swap(index, index - 1);
                             controls.reorder_queue(order);
                         }
-                        Output::Consumed
+                        Ok(Output::Consumed)
                     }
                     KeyCode::Char('D') => {
                         let index = self.state.selected();
@@ -118,7 +131,39 @@ impl QueueState {
                         if let Some(index) = index {
                             controls.remove_index_from_queue(index);
                         }
-                        Output::Consumed
+                        Ok(Output::Consumed)
+                    }
+                    KeyCode::Char('A') => {
+                        let selected = self
+                            .state
+                            .selected()
+                            .and_then(|index| self.items.get(index));
+
+                        if let Some(selected) = selected {
+                            client.add_favorite_track(selected.id).await?;
+                            notifications.push(Notification::Info(format!(
+                                "{} added to favorites",
+                                selected.title
+                            )));
+                            return Ok(Output::FavoriteAdded(FavoriteAdd::Track(selected.clone())));
+                        }
+                        Ok(Output::Consumed)
+                    }
+                    KeyCode::Char('U') => {
+                        let selected = self
+                            .state
+                            .selected()
+                            .and_then(|index| self.items.get(index));
+
+                        if let Some(selected) = selected {
+                            client.remove_favorite_track(selected.id).await?;
+                            notifications.push(Notification::Info(format!(
+                                "{} removed from favorites",
+                                selected.title
+                            )));
+                            return Ok(Output::FavoriteRemoved(FavoriteRemove::Track(selected.id)));
+                        }
+                        Ok(Output::Consumed)
                     }
                     KeyCode::Enter => {
                         let index = self.state.selected();
@@ -126,13 +171,13 @@ impl QueueState {
                         if let Some(index) = index {
                             controls.skip_to_position(index, true);
                         }
-                        Output::Consumed
+                        Ok(Output::Consumed)
                     }
 
-                    _ => Output::NotConsumed,
+                    _ => Ok(Output::NotConsumed),
                 }
             }
-            _ => Output::NotConsumed,
+            _ => Ok(Output::NotConsumed),
         }
     }
 }

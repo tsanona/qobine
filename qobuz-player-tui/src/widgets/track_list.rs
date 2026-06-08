@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use qobuz_player_controls::{
     AppResult, client::Client, controls::Controls, models::Track, notification::Notification,
 };
@@ -11,11 +13,11 @@ use ratatui::{
 };
 
 use crate::{
-    app::{FilteredListState, NotificationList, Output},
+    app::{FavoriteAdd, FavoriteRemove, FilteredListState, NotificationList, Output},
     popup::Popup,
     ui::{
         COLUMN_SPACING, HIGHLIGHT_STYLE, SELECTED_STYLE, fetch_image, format_duration,
-        mark_explicit_and_hifi,
+        mark_explicit_and_hifi, mark_favorite,
     },
 };
 
@@ -44,8 +46,15 @@ impl TrackList {
         Self { items: tracks }
     }
 
-    pub fn render(&mut self, area: Rect, buf: &mut Buffer, show_album: bool, focus: bool) {
-        let table = track_table(self.items.filter(), show_album, focus);
+    pub fn render(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        show_album: bool,
+        focus: bool,
+        favorite_tracks: &HashSet<u32>,
+    ) {
+        let table = track_table(self.items.filter(), show_album, focus, favorite_tracks);
         table.render(area, buf, &mut self.items.state);
     }
 
@@ -147,7 +156,7 @@ impl TrackList {
                         "{} added to favorites",
                         selected.title
                     )));
-                    return Ok(Output::UpdateFavorites);
+                    return Ok(Output::FavoriteAdded(FavoriteAdd::Track(selected.clone())));
                 }
 
                 Ok(Output::Consumed)
@@ -163,7 +172,7 @@ impl TrackList {
                         "{} removed from favorites",
                         selected.title
                     )));
-                    return Ok(Output::UpdateFavorites);
+                    return Ok(Output::FavoriteRemoved(FavoriteRemove::Track(selected.id)));
                 }
                 Ok(Output::Consumed)
             }
@@ -219,17 +228,20 @@ impl TrackList {
     }
 }
 
-fn track_table<'a>(rows: &[Track], show_album: bool, focus: bool) -> Table<'a> {
+fn track_table<'a>(
+    rows: &[Track],
+    show_album: bool,
+    focus: bool,
+    favorite_tracks: &HashSet<u32>,
+) -> Table<'a> {
     let body_rows: Vec<Row<'a>> = rows
         .iter()
         .map(|track| {
             let mut cols: Vec<Line<'a>> = Vec::with_capacity(if show_album { 4 } else { 3 });
 
-            cols.push(mark_explicit_and_hifi(
-                track.title.clone(),
-                track.explicit,
-                track.hires_available,
-            ));
+            let title =
+                mark_explicit_and_hifi(track.title.clone(), track.explicit, track.hires_available);
+            cols.push(mark_favorite(title, favorite_tracks.contains(&track.id)));
 
             cols.push(Line::from(track.artist_name.clone().unwrap_or_default()));
 

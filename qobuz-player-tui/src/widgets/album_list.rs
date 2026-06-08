@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use qobuz_player_controls::{
     AppResult, client::Client, controls::Controls, models::AlbumSimple, notification::Notification,
 };
@@ -11,11 +13,11 @@ use ratatui::{
 };
 
 use crate::{
-    app::{FilteredListState, NotificationList, Output},
+    app::{FavoriteAdd, FavoriteRemove, FilteredListState, NotificationList, Output},
     popup::{AlbumPopupState, Popup},
     ui::{
         COLUMN_SPACING, HIGHLIGHT_STYLE, SELECTED_STYLE, fetch_image, format_duration,
-        mark_explicit_and_hifi,
+        mark_explicit_and_hifi, mark_favorite,
     },
 };
 
@@ -36,8 +38,14 @@ impl AlbumList {
         Self { items: albums }
     }
 
-    pub fn render(&mut self, area: Rect, buf: &mut Buffer, focus: bool) {
-        let table = album_table(self.items.filter(), focus);
+    pub fn render(
+        &mut self,
+        area: Rect,
+        buf: &mut Buffer,
+        focus: bool,
+        favorite_albums: &HashSet<String>,
+    ) {
+        let table = album_table(self.items.filter(), focus, favorite_albums);
         table.render(area, buf, &mut self.items.state);
     }
 
@@ -85,7 +93,7 @@ impl AlbumList {
                         "{} added to favorites",
                         selected.title
                     )));
-                    return Ok(Output::UpdateFavorites);
+                    return Ok(Output::FavoriteAdded(FavoriteAdd::Album(selected.clone())));
                 }
 
                 Ok(Output::Consumed)
@@ -102,7 +110,9 @@ impl AlbumList {
                         "{} removed from favorites",
                         selected.title
                     )));
-                    return Ok(Output::UpdateFavorites);
+                    return Ok(Output::FavoriteRemoved(FavoriteRemove::Album(
+                        selected.id.clone(),
+                    )));
                 }
 
                 Ok(Output::Consumed)
@@ -182,12 +192,18 @@ impl AlbumList {
     }
 }
 
-pub fn album_table<'a>(rows: &[AlbumSimple], focus: bool) -> Table<'a> {
+pub fn album_table<'a>(
+    rows: &[AlbumSimple],
+    focus: bool,
+    favorite_albums: &HashSet<String>,
+) -> Table<'a> {
     let body_rows: Vec<Row<'a>> = rows
         .iter()
         .map(|album| {
+            let title =
+                mark_explicit_and_hifi(album.title.clone(), album.explicit, album.hires_available);
             Row::new(vec![
-                mark_explicit_and_hifi(album.title.clone(), album.explicit, album.hires_available),
+                mark_favorite(title, favorite_albums.contains(&album.id)),
                 Line::from(album.artist.name.clone()),
                 Line::from(album.release_year.to_string()),
                 Line::from(format_duration(album.duration_seconds)),

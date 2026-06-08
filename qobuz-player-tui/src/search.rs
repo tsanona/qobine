@@ -7,7 +7,7 @@ use ratatui::{
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 use crate::{
-    app::{NotificationList, Output},
+    app::{FavoriteIds, NotificationList, Output},
     sub_tab::SubTab,
     ui::{block, render_input, sidebar},
     widgets::{
@@ -38,7 +38,7 @@ pub struct SearchState {
 }
 
 impl SearchState {
-    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, favorite_ids: &FavoriteIds) {
         let tab_content_area_split = Layout::default()
             .constraints([Constraint::Length(3), Constraint::Min(1)])
             .split(area);
@@ -72,20 +72,29 @@ impl SearchState {
         let content_focused = self.focus == SearchFocus::Content;
 
         match self.sub_tab {
-            SubTab::Albums => self
-                .albums
-                .render(chunks[1], frame.buffer_mut(), content_focused),
-            SubTab::Artists => self
-                .artists
-                .render(chunks[1], frame.buffer_mut(), content_focused),
+            SubTab::Albums => self.albums.render(
+                chunks[1],
+                frame.buffer_mut(),
+                content_focused,
+                &favorite_ids.albums,
+            ),
+            SubTab::Artists => self.artists.render(
+                chunks[1],
+                frame.buffer_mut(),
+                content_focused,
+                &favorite_ids.artists,
+            ),
             SubTab::Playlists => {
                 self.playlists
                     .render(chunks[1], frame.buffer_mut(), content_focused)
             }
-            SubTab::Tracks => {
-                self.tracks
-                    .render(chunks[1], frame.buffer_mut(), true, content_focused)
-            }
+            SubTab::Tracks => self.tracks.render(
+                chunks[1],
+                frame.buffer_mut(),
+                true,
+                content_focused,
+                &favorite_ids.tracks,
+            ),
         };
     }
 

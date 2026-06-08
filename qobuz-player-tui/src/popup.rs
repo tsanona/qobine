@@ -13,7 +13,7 @@ use ratatui_image::{StatefulImage, protocol::StatefulProtocol};
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 use crate::{
-    app::{NotificationList, Output},
+    app::{FavoriteIds, NotificationList, Output},
     ui::{block, center, centered_rect_fixed, format_seconds, render_input, tab_bar},
     widgets::{
         album_list::AlbumList,
@@ -279,7 +279,7 @@ pub enum Popup {
 }
 
 impl Popup {
-    pub fn render(&mut self, frame: &mut Frame) {
+    pub fn render(&mut self, frame: &mut Frame, favorite_ids: &FavoriteIds) {
         match self {
             Popup::Album(state) => {
                 let area = center(
@@ -292,9 +292,13 @@ impl Popup {
 
                 frame.render_widget(Clear, area);
                 frame.render_widget(&block, area);
-                state
-                    .tracks
-                    .render(block.inner(area), frame.buffer_mut(), false, true);
+                state.tracks.render(
+                    block.inner(area),
+                    frame.buffer_mut(),
+                    false,
+                    true,
+                    &favorite_ids.tracks,
+                );
             }
             Popup::Artist(artist) => {
                 let visible_rows = (artist.current_row_count() + 1).min(15) as u16;
@@ -328,12 +332,19 @@ impl Popup {
 
                 if let Some(state) = artist.current_state_mut() {
                     match state {
-                        SelectedArtistPopupSubtabMut::Albums(album_list) => {
-                            album_list.render(chunks[1], frame.buffer_mut(), true)
-                        }
-                        SelectedArtistPopupSubtabMut::TopTracks(track_list) => {
-                            track_list.render(chunks[1], frame.buffer_mut(), true, true)
-                        }
+                        SelectedArtistPopupSubtabMut::Albums(album_list) => album_list.render(
+                            chunks[1],
+                            frame.buffer_mut(),
+                            true,
+                            &favorite_ids.albums,
+                        ),
+                        SelectedArtistPopupSubtabMut::TopTracks(track_list) => track_list.render(
+                            chunks[1],
+                            frame.buffer_mut(),
+                            true,
+                            true,
+                            &favorite_ids.tracks,
+                        ),
                     }
                 }
             }
@@ -371,9 +382,13 @@ impl Popup {
                     ])
                     .split(inner);
 
-                playlist_state
-                    .tracks
-                    .render(chunks[0], frame.buffer_mut(), true, true);
+                playlist_state.tracks.render(
+                    chunks[0],
+                    frame.buffer_mut(),
+                    true,
+                    true,
+                    &favorite_ids.tracks,
+                );
                 frame.render_widget(buttons, chunks[2]);
             }
             Popup::Track(track_state) => {

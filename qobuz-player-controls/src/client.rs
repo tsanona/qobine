@@ -460,14 +460,13 @@ impl Client {
 
         playlists.sort_by_key(|a| a.title.to_lowercase());
 
-        let mut tracks: Vec<_> = favorites_result
-            .tracks
-            .items
+        let mut track_items = favorites_result.tracks.items;
+        track_items.sort_by_key(|t| std::cmp::Reverse(t.favorited_at));
+
+        let tracks: Vec<_> = track_items
             .into_iter()
             .map(|x| parse_track(x, &audio_quality))
             .collect();
-
-        tracks.sort_by_key(|a| a.title.to_lowercase());
 
         let favorites = Favorites {
             albums,

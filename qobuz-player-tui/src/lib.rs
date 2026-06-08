@@ -82,7 +82,10 @@ pub async fn init(
             database,
         ),
         client,
+        favorite_ids: Default::default(),
     };
+
+    app.update_favorites().await;
 
     _ = app.run(&mut terminal).await;
     ratatui::restore();
@@ -93,20 +96,29 @@ pub async fn init(
 
 fn draw_loading_screen<B: Backend>(terminal: &mut Terminal<B>) {
     let ascii_art = r#"
-             _                     _                       
-  __ _  ___ | |__  _   _ _____ __ | | __ _ _   _  ___ _ __ 
+             _                     _
+  __ _  ___ | |__  _   _ _____ __ | | __ _ _   _  ___ _ __
  / _` |/ _ \| '_ \| | | |_  / '_ \| |/ _` | | | |/ _ \ '__|
-| (_| | (_) | |_) | |_| |/ /| |_) | | (_| | |_| |  __/ |   
- \__, |\___/|_.__/ \__,_/___| .__/|_|\__,_|\__, |\___|_|   
-    |_|                     |_|            |___/           
+| (_| | (_) | |_) | |_| |/ /| |_) | | (_| | |_| |  __/ |
+ \__, |\___/|_.__/ \__,_/___| .__/|_|\__,_|\__, |\___|_|
+    |_|                     |_|            |___/
 "#;
+
+    let width = ascii_art
+        .lines()
+        .map(|line| line.chars().count())
+        .max()
+        .unwrap_or(0) as u16;
+    let height = ascii_art.lines().count() as u16;
 
     terminal
         .draw(|f| {
-            let area = center(f.area(), Constraint::Length(64), Constraint::Length(7));
-            let paragraph = Paragraph::new(ascii_art)
-                .alignment(Alignment::Center)
-                .wrap(Wrap { trim: false });
+            let area = center(
+                f.area(),
+                Constraint::Length(width),
+                Constraint::Length(height),
+            );
+            let paragraph = Paragraph::new(ascii_art).alignment(Alignment::Left);
             f.render_widget(paragraph, area);
         })
         .expect("infallible");

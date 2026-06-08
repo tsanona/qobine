@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::ui::{SELECTED_STYLE, sidebar};
 use crate::{
-    app::{NotificationList, Output},
+    app::{FavoriteIds, NotificationList, Output},
     ui::block,
     widgets::{album_list::AlbumList, playlist_list::PlaylistList},
 };
@@ -116,7 +116,7 @@ impl GenresState {
         Ok(())
     }
 
-    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, favorite_ids: &FavoriteIds) {
         let block = block(None);
         frame.render_widget(block, area);
 
@@ -124,7 +124,7 @@ impl GenresState {
 
         match self.mode {
             GenresMode::GenreList => self.render_genre_list(frame, content_area),
-            GenresMode::GenreDetail => self.render_genre_detail(frame, content_area),
+            GenresMode::GenreDetail => self.render_genre_detail(frame, content_area, favorite_ids),
         }
     }
 
@@ -189,7 +189,7 @@ impl GenresState {
         }
     }
 
-    fn render_genre_detail(&mut self, frame: &mut Frame, area: Rect) {
+    fn render_genre_detail(&mut self, frame: &mut Frame, area: Rect, favorite_ids: &FavoriteIds) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(2), Constraint::Min(1)])
@@ -230,7 +230,12 @@ impl GenresState {
         let content_focused = self.focus == GenresFocus::Content;
         match self.selected_mut() {
             Some(Selected::Album(list)) => {
-                list.render(content_chunks[1], frame.buffer_mut(), content_focused);
+                list.render(
+                    content_chunks[1],
+                    frame.buffer_mut(),
+                    content_focused,
+                    &favorite_ids.albums,
+                );
             }
             Some(Selected::Playlist(list)) => {
                 list.render(content_chunks[1], frame.buffer_mut(), content_focused);

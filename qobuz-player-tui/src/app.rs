@@ -16,13 +16,13 @@ use qobuz_player_controls::{
     AppResult, PositionReceiver, Status, StatusReceiver, TracklistReceiver,
     client::Client,
     controls::Controls,
-    models::Track,
+    models::{AlbumSimple, Artist, Track},
     notification::{Notification, NotificationBroadcast},
     tracklist::{Tracklist, TracklistType},
 };
 use ratatui::{DefaultTerminal, widgets::*};
 use ratatui_image::protocol::StatefulProtocol;
-use std::{io, sync::Arc, time::Instant};
+use std::{collections::HashSet, io, sync::Arc, time::Instant};
 use tokio::time::{self, Duration};
 
 #[derive(Default)]
@@ -71,6 +71,14 @@ pub struct App {
     pub full_screen: bool,
     pub disable_tui_album_cover: bool,
     pub current_image_url: Option<String>,
+    pub favorite_ids: FavoriteIds,
+}
+
+#[derive(Default)]
+pub struct FavoriteIds {
+    pub tracks: HashSet<u32>,
+    pub albums: HashSet<String>,
+    pub artists: HashSet<u32>,
 }
 
 #[derive(Default)]
@@ -86,10 +94,24 @@ pub enum Output {
     Consumed,
     NotConsumed,
     UpdateFavorites,
+    FavoriteAdded(FavoriteAdd),
+    FavoriteRemoved(FavoriteRemove),
     Popup(Popup),
     PopPopupUpdateFavorites,
     AddTrackToPlaylistPopup(Track),
     AddTrackToPlaylistAndPopPopup((u32, u32)), // TODO: Add a type
+}
+
+pub enum FavoriteAdd {
+    Track(Track),
+    Album(AlbumSimple),
+    Artist(Artist),
+}
+
+pub enum FavoriteRemove {
+    Track(u32),
+    Album(String),
+    Artist(u32),
 }
 
 #[derive(Default, PartialEq)]
@@ -278,11 +300,15 @@ impl App {
         Ok(())
     }
 
-    async fn update_favorites(&mut self) {
+    pub(crate) async fn update_favorites(&mut self) {
         let favorites = self.client.favorites().await;
         let Ok(favorites) = favorites else {
             return;
         };
+
+        self.favorite_ids.tracks = favorites.tracks.iter().map(|t| t.id).collect();
+        self.favorite_ids.albums = favorites.albums.iter().map(|a| a.id.clone()).collect();
+        self.favorite_ids.artists = favorites.artists.iter().map(|a| a.id).collect();
 
         self.favorites.albums.set_all_items(favorites.albums);
         self.favorites.artists.set_all_items(favorites.artists);
@@ -290,6 +316,79 @@ impl App {
             .playlists
             .set_all_items(favorites.playlists.into_iter().map(|x| x.into()).collect());
         self.favorites.tracks.set_all_items(favorites.tracks);
+        self.favorites.filter.reset();
+    }
+
+    fn apply_favorite_added(&mut self, added: FavoriteAdd) {
+        match added {
+            FavoriteAdd::Track(track) => {
+                self.favorite_ids.tracks.insert(track.id);
+                let mut items = self.favorites.tracks.all_items().clone();
+                items.insert(0, track);
+                self.favorites.tracks.set_all_items(items);
+            }
+            FavoriteAdd::Album(album) => {
+                self.favorite_ids.albums.insert(album.id.clone());
+                let mut items = self.favorites.albums.all_items().clone();
+                items.push(album);
+                items.sort_by(|a, b| {
+                    a.artist
+                        .name
+                        .to_lowercase()
+                        .cmp(&b.artist.name.to_lowercase())
+                });
+                self.favorites.albums.set_all_items(items);
+            }
+            FavoriteAdd::Artist(artist) => {
+                self.favorite_ids.artists.insert(artist.id);
+                let mut items = self.favorites.artists.all_items().clone();
+                items.push(artist);
+                items.sort_by_key(|a| a.name.to_lowercase());
+                self.favorites.artists.set_all_items(items);
+            }
+        }
+        self.favorites.filter.reset();
+    }
+
+    fn apply_favorite_removed(&mut self, removed: FavoriteRemove) {
+        match removed {
+            FavoriteRemove::Track(id) => {
+                self.favorite_ids.tracks.remove(&id);
+                let items: Vec<_> = self
+                    .favorites
+                    .tracks
+                    .all_items()
+                    .iter()
+                    .filter(|t| t.id != id)
+                    .cloned()
+                    .collect();
+                self.favorites.tracks.set_all_items(items);
+            }
+            FavoriteRemove::Album(id) => {
+                self.favorite_ids.albums.remove(&id);
+                let items: Vec<_> = self
+                    .favorites
+                    .albums
+                    .all_items()
+                    .iter()
+                    .filter(|a| a.id != id)
+                    .cloned()
+                    .collect();
+                self.favorites.albums.set_all_items(items);
+            }
+            FavoriteRemove::Artist(id) => {
+                self.favorite_ids.artists.remove(&id);
+                let items: Vec<_> = self
+                    .favorites
+                    .artists
+                    .all_items()
+                    .iter()
+                    .filter(|a| a.id != id)
+                    .cloned()
+                    .collect();
+                self.favorites.artists.set_all_items(items);
+            }
+        }
         self.favorites.filter.reset();
     }
 
@@ -309,6 +408,14 @@ impl App {
             }
             Output::UpdateFavorites => {
                 self.update_favorites().await;
+                self.should_draw = true;
+            }
+            Output::FavoriteAdded(added) => {
+                self.apply_favorite_added(added);
+                self.should_draw = true;
+            }
+            Output::FavoriteRemoved(removed) => {
+                self.apply_favorite_removed(removed);
                 self.should_draw = true;
             }
             Output::NotConsumed => match key_code {
@@ -529,7 +636,16 @@ impl App {
                             )
                             .await
                     }
-                    Tab::Queue => Ok(self.queue.handle_events(event, &self.controls).await),
+                    Tab::Queue => {
+                        self.queue
+                            .handle_events(
+                                event,
+                                &self.client,
+                                &self.controls,
+                                &mut self.notifications,
+                            )
+                            .await
+                    }
                     Tab::Discover => {
                         self.discover
                             .handle_events(
